@@ -7,6 +7,9 @@ dependencies:
   - pip
   - python=3.12
   - pydantic
+  - numpy
+  - pandas
+  - seaborn
   - pip:
       - docstring-parser==0.16
       - markdown-it-py==3.0.0
