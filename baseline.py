@@ -10,11 +10,8 @@ import json
 
 def run_generation(out_file, sampling_params, llm_params):
     problems = read_problems()
-    prompts = []
-    task_ids = []
-    for task_id, problem in problems.items():
-        prompts.append(problem["prompt"])
-        task_ids.append(task_id)
+    prompts = [problem["prompt"] for problem in problems.values()]
+    task_ids = list(problems.keys())
 
     llm = LLM(**llm_params)
     t0 = time()
@@ -41,14 +38,22 @@ if __name__ == "__main__":
     llm_params = dict(model="meta-llama/Llama-3.2-1B", gpu_memory_utilization=0.75)
 
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
-    with open(out_path / "_experiments.jsonl", "a") as f:
-        info = dict(name=name, sampling_params=sampling_params, llm_params=llm_params)
-        f.write(json.dumps(info)+"\n")
+    this_params = dict(sampling_params=sampling_params, llm_params=llm_params)
+
+    experiments_file = out_path / "_experiments.json"
+    if experiments_file.exists():
+        with open(experiments_file, "r") as f:
+            experiments = json.load(f)
+    else:
+        experiments = {}
+    if this_params in experiments.values():
+        exit()
+    experiments[name] = this_params
+    with open(experiments_file, "w") as f:
+        json.dump(experiments, f, indent=4)
 
     out_file = out_path / name
-    run_generation(
-        out_file, sampling_params, llm_params
-    )
+    run_generation(out_file, sampling_params, llm_params)
 
     result = evaluation.evaluate_functional_correctness(
         str(out_file), k=[1, 4, 16, 64, 256]
