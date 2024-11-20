@@ -1,0 +1,20 @@
+name: inference-time-scaling
+channels:
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - git
+  - pip
+  - python=3.12
+  - pydantic
+  - numpy
+  - pandas
+  - seaborn
+  - pip:
+      - docstring-parser==0.16
+      - markdown-it-py==3.0.0
+      - mdurl==0.1.2
+      - pygments==2.18.0
+      - rich==13.9.4
+      - shtab==1.7.1
+      - tyro==0.8.14
