@@ -25,8 +25,8 @@ def run_generation(out_file, sampling_params, llm_params):
     write_jsonl(out_file, samples)
 
 
-def run_experiment(sampling_params, llm_params, evaluate):
-    environ["CUDA_VISIBLE_DEVICES"] = "3"
+def run_experiment(sampling_params, llm_params, evaluate=False):
+    environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
 
     out_path = Path("/raid/shared/llm-inference-scaling/outputs")
@@ -43,15 +43,16 @@ def run_experiment(sampling_params, llm_params, evaluate):
     if this_params in experiments.values():
         return
     experiments[name] = this_params
-    with open(experiments_file, "w") as f:
-        json.dump(experiments, f, indent=4)
     out_file = out_path / name
     run_generation(out_file, sampling_params, llm_params)
+    with open(experiments_file, "w") as f:
+        json.dump(experiments, f, indent=4)  # write only when completed
+        # todo write time taken
     if evaluate:
-        result = evaluation.evaluate_functional_correctness(
+        evaluation.evaluate_functional_correctness(
             str(out_file), k=[1, 4, 16, 64, 256]
         )
-        print(result)  # todo write results somewhere?
+    return out_file
 
 
 if __name__ == "__main__":
