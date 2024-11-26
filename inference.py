@@ -9,6 +9,8 @@ import coolname
 import json
 import yaml
 
+BASE_PATH = "/raid/shared/llm-inference-scaling/experiments"
+
 def get_prompts():
     problems = read_problems()
     prompts = [problem["prompt"] for problem in problems.values()]
@@ -35,7 +37,7 @@ def run_generation(out_file, config):
     
     return elapsed_time
 
-def create_experiment_dir(base_path="/raid/shared/llm-inference-scaling/experiments"):
+def create_experiment_dir(base_path=BASE_PATH):
     base_path = Path(base_path)
     experiment_name = '-'.join(coolname.generate())
     experiment_path = base_path / experiment_name
@@ -43,7 +45,7 @@ def create_experiment_dir(base_path="/raid/shared/llm-inference-scaling/experime
     
     return experiment_name, experiment_path
 
-def store_metadata(name, config, base_path="/raid/shared/llm-inference-scaling/experiments"):
+def store_metadata(name, config, base_path=BASE_PATH):
     experiments_file = Path(base_path) / "experiments.json"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
@@ -66,10 +68,19 @@ def store_results(experiments, experiments_file):
     with open(experiments_file, "w") as f:
         json.dump(experiments, f, indent=4)
 
-def evaluate(out_file):
+def evaluate(out_file, config):
+    num_samples = config["sampling"]["n"]
     evaluation.evaluate_functional_correctness(
-            str(out_file), k=[1, 4, 16, 64, 256]
+            str(out_file), k=powers_of_x_up_to(4, num_samples)
         )
+
+def powers_of_x_up_to(x:int, max_value: int) -> list[int]:
+    powers = []
+    value = 1
+    while value <= max_value:
+        powers.append(value)
+        value *= x
+    return powers
 
 def run_experiment(config):   
     # Create experiment dir and store metadata
@@ -86,7 +97,7 @@ def run_experiment(config):
     
     if config.get("evaluate", False):
         # Choose your evaluation script here
-        evaluate(out_file)
+        evaluate(out_file, config)
     
     return out_file
 
