@@ -8,6 +8,9 @@ from os import environ
 import coolname
 import json
 import yaml
+from evaluation.evaluation import evaluate_only_functional_correctness
+
+BASE_PATH = "/raid/shared/llm-inference-scaling/experiments_test"
 
 def get_prompts():
     problems = read_problems()
@@ -33,9 +36,9 @@ def run_generation(out_file, config):
             samples.append(dict(task_id=tid, completion=out.text))
     write_jsonl(out_file, samples)
     
-    return elapsed_time
+    return samples, elapsed_time
 
-def create_experiment_dir(base_path="/raid/shared/llm-inference-scaling/experiments"):
+def create_experiment_dir(base_path=BASE_PATH):
     base_path = Path(base_path)
     experiment_name = '-'.join(coolname.generate())
     experiment_path = base_path / experiment_name
@@ -43,7 +46,7 @@ def create_experiment_dir(base_path="/raid/shared/llm-inference-scaling/experime
     
     return experiment_name, experiment_path
 
-def store_metadata(name, config, base_path="/raid/shared/llm-inference-scaling/experiments"):
+def store_metadata(name, config, base_path=BASE_PATH):
     experiments_file = Path(base_path) / "experiments.json"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
@@ -66,10 +69,10 @@ def store_results(experiments, experiments_file):
     with open(experiments_file, "w") as f:
         json.dump(experiments, f, indent=4)
 
-def evaluate(out_file):
-    evaluation.evaluate_functional_correctness(
-            str(out_file), k=[1, 4, 16, 64, 256]
-        )
+def evaluate(out_samples, out_file):
+    evaluate_only_functional_correctness(
+        out_samples, out_file,
+    )
 
 def run_experiment(config):   
     # Create experiment dir and store metadata
@@ -77,7 +80,7 @@ def run_experiment(config):
     out_file = out_path / f"{experiment_name}.jsonl"
     
     # Choose your generation scipt here
-    creation_time = run_generation(out_file, config)
+    out_samples, creation_time = run_generation(out_file, config)
     experiments[experiment_name	]["runtime"] = creation_time
 
     # Only store results when run was successful
@@ -86,7 +89,8 @@ def run_experiment(config):
     
     if config.get("evaluate", False):
         # Choose your evaluation script here
-        evaluate(out_file)
+        results_file = str(out_file) + "_results.jsonl"
+        evaluate(out_samples, results_file)
     
     return out_file
 
