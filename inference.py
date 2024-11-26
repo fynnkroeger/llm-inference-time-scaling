@@ -41,10 +41,10 @@ def create_experiment_dir(base_path="/raid/shared/llm-inference-scaling/experime
     experiment_path = base_path / experiment_name
     experiment_path.mkdir(exist_ok=True, parents=True)
     
-    return experiment_path, experiment_name, base_path
+    return experiment_name, experiment_path
 
-def store_metadata(experiment_path, name, config):
-    experiments_file = experiment_path / "_experiments.json"
+def store_metadata(name, config, base_path="/raid/shared/llm-inference-scaling/experiments"):
+    experiments_file = Path(base_path) / "experiments.json"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
             experiments = json.load(f)
@@ -58,8 +58,8 @@ def experiment_setup(config):
     # Choose GPU
     environ["CUDA_VISIBLE_DEVICES"] = "5"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
-    experiment_path,  experiment_name, out_path = create_experiment_dir()
-    experiments, experiments_file = store_metadata(experiment_path, experiment_name, config)
+    experiment_name, out_path = create_experiment_dir()
+    experiments, experiments_file = store_metadata(experiment_name, config)
     return experiments, experiments_file, experiment_name, out_path
     
 def store_results(experiments, experiments_file):
