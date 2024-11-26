@@ -8,6 +8,7 @@ from os import environ
 import coolname
 import json
 import yaml
+from evaluation.evaluation import evaluate_only_functional_correctness
 
 BASE_PATH = "/raid/shared/llm-inference-scaling/experiments"
 
@@ -35,7 +36,7 @@ def run_generation(out_file, config):
             samples.append(dict(task_id=tid, completion=out.text))
     write_jsonl(out_file, samples)
     
-    return elapsed_time
+    return samples, elapsed_time
 
 def create_experiment_dir(base_path=BASE_PATH):
     base_path = Path(base_path)
@@ -68,7 +69,13 @@ def store_results(experiments, experiments_file):
     with open(experiments_file, "w") as f:
         json.dump(experiments, f, indent=4)
 
-def evaluate(out_file, config):
+def evaluate_enhanced(out_file, out_samples):
+    results_file = str(out_file) + "_results.jsonl"
+    evaluate_only_functional_correctness(
+        out_samples, results_file,
+    )
+    
+def evaluate_pass_at_k(out_file, config):
     num_samples = config["sampling"]["n"]
     evaluation.evaluate_functional_correctness(
             str(out_file), k=powers_of_x_up_to(4, num_samples)
@@ -88,7 +95,7 @@ def run_experiment(config):
     out_file = out_path / f"{experiment_name}.jsonl"
     
     # Choose your generation scipt here
-    creation_time = run_generation(out_file, config)
+    out_samples, creation_time = run_generation(out_file, config)
     experiments[experiment_name	]["runtime"] = creation_time
 
     # Only store results when run was successful
@@ -97,7 +104,7 @@ def run_experiment(config):
     
     if config.get("evaluate", False):
         # Choose your evaluation script here
-        evaluate(out_file, config)
+        evaluate_enhanced(out_file, out_samples)
     
     return out_file
 
