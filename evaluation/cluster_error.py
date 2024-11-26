@@ -161,8 +161,15 @@ def get_errors_per_category(base_path: str, num_samples: int, group_by_tasks=Tru
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
+# To run the script you have generate the .jsonl_results.jsonl file
+# with an adjusted check_correctness function in human_eval.execution
+# Set the raised error in line 62 to:
+# except BaseException as e:
+#     error_type = type(e).__name__
+#     error_message = str(e)
+#     result.append(f"failed: {error_type} - {error_message}") 
 if __name__ == "__main__":
-    # Define the path to your .jsonl_resuls.jsonl file
+    # Define the path to your .jsonl_results.jsonl file
     name = "wealthy-pegasus-of-massive-prosperity"
     base_path = f"/raid/shared/llm-inference-scaling/experiments_test/{name}/{name}.jsonl_results.jsonl"
     
