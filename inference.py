@@ -10,7 +10,7 @@ import json
 import yaml
 from evaluation.evaluation import evaluate_only_functional_correctness
 
-BASE_PATH = "/raid/shared/llm-inference-scaling/experiments_test"
+BASE_PATH = "/raid/shared/llm-inference-scaling/experiments"
 
 def get_prompts():
     problems = read_problems()
@@ -69,10 +69,25 @@ def store_results(experiments, experiments_file):
     with open(experiments_file, "w") as f:
         json.dump(experiments, f, indent=4)
 
-def evaluate(out_samples, out_file):
+def evaluate_enhanced(out_file, out_samples):
+    results_file = str(out_file) + "_results.jsonl"
     evaluate_only_functional_correctness(
-        out_samples, out_file,
+        out_samples, results_file,
     )
+    
+def evaluate_pass_at_k(out_file, config):
+    num_samples = config["sampling"]["n"]
+    evaluation.evaluate_functional_correctness(
+            str(out_file), k=powers_of_x_up_to(4, num_samples)
+        )
+
+def powers_of_x_up_to(x:int, max_value: int) -> list[int]:
+    powers = []
+    value = 1
+    while value <= max_value:
+        powers.append(value)
+        value *= x
+    return powers
 
 def run_experiment(config):   
     # Create experiment dir and store metadata
@@ -89,8 +104,7 @@ def run_experiment(config):
     
     if config.get("evaluate", False):
         # Choose your evaluation script here
-        results_file = str(out_file) + "_results.jsonl"
-        evaluate(out_samples, results_file)
+        evaluate_enhanced(out_file, out_samples)
     
     return out_file
 
