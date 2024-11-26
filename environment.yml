@@ -10,6 +10,7 @@ dependencies:
   - numpy
   - pandas
   - seaborn
+  - coolname
   - pip:
       - docstring-parser==0.16
       - markdown-it-py==3.0.0
