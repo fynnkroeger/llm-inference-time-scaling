@@ -1,9 +1,13 @@
 llm_params:
   model: meta-llama/Llama-3.2-1B
   gpu_memory_utilization: 0.75
+beam_params:
+  temperature: 0.6
+  max_tokens: 128
 sampling:
   temperature: 0.8
   top_p: 0.95
   max_tokens: 2
   n: 4 # number of samples
 evaluate: true
+use_beam_search: true

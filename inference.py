@@ -1,5 +1,6 @@
 import os
 from vllm import LLM, SamplingParams
+from vllm.sampling_params import BeamSearchParams
 from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
 from time import time
@@ -71,7 +72,7 @@ def store_results(experiments, experiments_file):
 def evaluate(out_file, config):
     num_samples = config["sampling"]["n"]
     evaluation.evaluate_functional_correctness(
-            str(out_file), k=powers_of_x_up_to(4, num_samples)
+            str(out_file), k=powers_of_x_including_max(4, num_samples)
         )
 
 def powers_of_x_up_to(x:int, max_value: int) -> list[int]:
@@ -81,6 +82,11 @@ def powers_of_x_up_to(x:int, max_value: int) -> list[int]:
         powers.append(value)
         value *= x
     return powers
+
+def powers_of_x_including_max(x:int, max_value: int) -> list[int]:
+    powers = powers_of_x_up_to(int, max_value)
+    if powers[-1] != max_value:
+        powers.append(max_value)
 
 def run_experiment(config):   
     # Create experiment dir and store metadata
