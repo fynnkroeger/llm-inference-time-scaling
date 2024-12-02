@@ -7,6 +7,9 @@ from os import environ
 import uuid
 import json
 
+out_path = Path("/raid/shared/llm-inference-scaling/outputs")
+out_path.mkdir(exist_ok=True, parents=True)
+
 
 def run_generation(out_file, sampling_params, llm_params):
     problems = read_problems()
@@ -28,9 +31,6 @@ def run_generation(out_file, sampling_params, llm_params):
 def run_experiment(sampling_params, llm_params, evaluate=False):
     environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
-
-    out_path = Path("/raid/shared/llm-inference-scaling/outputs")
-    out_path.mkdir(exist_ok=True, parents=True)
 
     experiments_file = out_path / "_experiments.json"
     if experiments_file.exists():
