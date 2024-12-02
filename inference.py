@@ -43,6 +43,7 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
                 config["sampling_params"] == sampling_params
                 and config["llm_params"] == llm_params
         ):
+            print("experiment already performed, skipping")
             return file_name
 
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
