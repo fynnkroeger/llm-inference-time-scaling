@@ -49,9 +49,7 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
         json.dump(experiments, f, indent=4)  # write only when completed
         # todo write time taken
     if evaluate:
-        evaluation.evaluate_functional_correctness(
-            str(out_file), k=[1, 4, 16, 64, 256]
-        )
+        evaluation.evaluate_functional_correctness(str(out_file), k=[1, 4, 16, 64, 256])
     return out_file
 
 

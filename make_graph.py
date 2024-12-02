@@ -20,8 +20,11 @@ def calc_pass_at_k_from_results(result_file, ks):
         index = int(loaded["task_id"].split("/")[1])
         total[index] += 1
         correct[index] += loaded["passed"]
-    pass_at_k = {k: estimate_pass_at_k(total, correct, k).mean()
-                 for k in ks if (total >= k).all()}
+    pass_at_k = {
+        k: estimate_pass_at_k(total, correct, k).mean()
+        for k in ks
+        if (total >= k).all()
+    }
     return pass_at_k
 
 
@@ -29,8 +32,10 @@ fig, ax = plt.subplots()
 
 for name, experiment_settings in experiments.items():
     match experiment_settings:
-        case {"sampling_params": {"temperature": t, "n": 256, "max_tokens": 128},
-              "llm_params": {"model": "meta-llama/Llama-3.2-1B"}}:
+        case {
+            "sampling_params": {"temperature": t, "n": 256, "max_tokens": 128},
+            "llm_params": {"model": "meta-llama/Llama-3.2-1B"},
+        }:
             print(t)
             print(name)
             result_file = out_path / f"{name}_results.jsonl"
@@ -42,7 +47,7 @@ for name, experiment_settings in experiments.items():
             print(res)
 ax.set_title("Llama-3.2-1B")
 
-ax.set_xscale('log', base=2)
+ax.set_xscale("log", base=2)
 ax.legend()
 ax.set_ylabel("HumanEval pass@k")
 ax.set_xlabel("k")
