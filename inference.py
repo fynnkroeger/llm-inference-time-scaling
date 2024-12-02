@@ -9,6 +9,7 @@ import json
 
 out_path = Path("/raid/shared/llm-inference-scaling/outputs")
 out_path.mkdir(exist_ok=True, parents=True)
+experiments_file = out_path / "_experiments.json"
 
 
 def run_generation(out_file, sampling_params, llm_params):
@@ -32,10 +33,19 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
     environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
 
-    experiments_file = out_path / "_experiments.json"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
             experiments = json.load(f)
+        to_delete = []
+        for name in experiments:
+            if not (out_path / name).exists():
+                to_delete.append(name)
+        if to_delete:
+            for name in to_delete:
+                print(f"deleting {name} as file not found")
+                del experiments[name]
+            with open(experiments_file, "w") as f:
+                json.dump(experiments, f, indent=4)
     else:
         experiments = {}
     for file_name, config in experiments.items():
@@ -64,6 +74,6 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
 
 
 if __name__ == "__main__":
-    sampling_params = dict(temperature=0.8, top_p=0.95, n=4, max_tokens=128)
-    llm_params = dict(model="meta-llama/Llama-3.2-1B", gpu_memory_utilization=0.75)
-    run_experiment(sampling_params, llm_params, evaluate=True)
+    sampling_params = dict(temperature=0.6, n=256, max_tokens=128)
+    llm_params = dict(model="meta-llama/Llama-3.1-8B", gpu_memory_utilization=0.75)
+    run_experiment(sampling_params, llm_params, evaluate=False)

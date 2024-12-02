@@ -61,9 +61,8 @@ for (out_file, config), result_file in zip(output_files.items(), result_files):
         pass_at_k = calc_pass_at_k_from_results(result_file, k_values)
         label = f"{config['model'].split('/')[1]} t={config['temperature']}"
         ax.plot(k_values, list(pass_at_k.values()), label=label)
-        ax.plot()
 ax.set_xscale("log", base=2)
-ax.set_title("models at optimal temperature")
+ax.set_title("model sizes at optimal temperature")
 ax.legend()
 ax.set_ylabel("HumanEval pass@k")
 ax.set_xlabel("k")
