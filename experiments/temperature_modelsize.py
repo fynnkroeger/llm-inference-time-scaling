@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 
 output_files = {}
 # run experiments
-models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
-for temperature in [0.6, 0.8, 1, 1.2]:
+models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B", "meta-llama/Llama-3.1-8B"]
+for temperature in [0.4, 0.6, 0.7, 0.8, 1, 1.2]:
     for model in models:
         sampling_params = dict(temperature=temperature, n=256, max_tokens=128)
         llm_params = dict(model=model, gpu_memory_utilization=0.75)
@@ -35,4 +35,22 @@ for model in models:
     ax.legend()
     ax.set_ylabel("HumanEval pass@k")
     ax.set_xlabel("k")
-    plt.savefig(f"{model_name_clean}.png")
+    plt.savefig(f"{model_name_clean}.png")  # todo better path to write plots
+
+fig, ax = plt.subplots()
+for (out_file, config), result_file in zip(output_files.items(), result_files):
+    if (config["temperature"] == 0.6 and config["model"] != "meta-llama/Llama-3.1-8B") or (
+            config["temperature"] == 0.7 and config["model"] == "meta-llama/Llama-3.1-8B"):
+        pass_at_k = calc_pass_at_k_from_results(result_file, k_values)
+        label = f"{config['model']} {config['temperature']}"
+        ax.plot(
+            k_values, list(pass_at_k.values()), label=label
+
+        )
+        ax.plot()
+ax.set_xscale("log", base=2)
+ax.set_title("models at optimal temperature")
+ax.legend()
+ax.set_ylabel("HumanEval pass@k")
+ax.set_xlabel("k")
+plt.savefig("all_models.png")
