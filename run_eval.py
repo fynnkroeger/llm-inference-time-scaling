@@ -14,5 +14,5 @@ def find_and_eval(out_path):
 
 if __name__ == "__main__":
     while True:
-        find_and_eval(Path("/raid/shared/llm-inference-scaling/experiments"))
+        find_and_eval(Path("/raid/shared/llm-inference-scaling/outputs"))
         sleep(5)
