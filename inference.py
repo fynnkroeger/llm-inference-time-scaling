@@ -16,13 +16,13 @@ def run_generation(out_file, sampling_params, llm_params):
     llm = LLM(**llm_params)
     t0 = time()
     outputs = llm.generate(prompts, SamplingParams(**sampling_params))
-    print(f"generation time: {time() - t0:.3f}")
-
+    generation_time = time() - t0
     samples = []
     for tid, output in zip(task_ids, outputs):
         for out in output.outputs:
             samples.append(dict(task_id=tid, completion=out.text))
     write_jsonl(out_file, samples)
+    return generation_time
 
 
 def run_experiment(sampling_params, llm_params, evaluate=False):
@@ -32,22 +32,31 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
     out_path = Path("/raid/shared/llm-inference-scaling/outputs")
     out_path.mkdir(exist_ok=True, parents=True)
 
-    name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
-    this_params = dict(sampling_params=sampling_params, llm_params=llm_params)
     experiments_file = out_path / "_experiments.json"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
             experiments = json.load(f)
     else:
         experiments = {}
-    if this_params in experiments.values():
-        return
-    experiments[name] = this_params
+    for file_name, config in experiments.items():
+        if (
+                config["sampling_params"] == sampling_params
+                and config["llm_params"] == llm_params
+        ):
+            return file_name
+
+    name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
     out_file = out_path / name
-    run_generation(out_file, sampling_params, llm_params)
+    generation_time = run_generation(out_file, sampling_params, llm_params)
+
+    # write only when completed
+    experiments[name] = dict(
+        sampling_params=sampling_params,
+        llm_params=llm_params,
+        generation_time=generation_time,
+    )
     with open(experiments_file, "w") as f:
-        json.dump(experiments, f, indent=4)  # write only when completed
-        # todo write time taken
+        json.dump(experiments, f, indent=4)
     if evaluate:
         evaluation.evaluate_functional_correctness(str(out_file), k=[1, 4, 16, 64, 256])
     return out_file
