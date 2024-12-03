@@ -188,8 +188,10 @@ problems = read_problems(HUMAN_EVAL)
 
 def evaluate_only_functional_correctness(
     samples: list[dict],
-    n_workers: int = 4,
+    n_workers: int = 64,
     timeout: float = 3.0,
+    extract_function_outputs: bool = False,
+    hash_function_outputs: bool = True
 ) -> list[dict]:
     """
     Evaluates the functional correctness of generated samples and writes
@@ -207,13 +209,16 @@ def evaluate_only_functional_correctness(
         futures = {}
         for sample in samples:
             # Extract input output pair if not cached yet
-            if sample["task_id"] not in task_id_to_input_output_pairs:
-                try:
-                    pair = extract_input_output_pairs_from_assert_statements_in_function(problems[sample["task_id"]]["test"])
-                except Exception:
-                    pair = None
-                task_id_to_input_output_pairs[sample["task_id"]] = pair
-            input_output_pair = task_id_to_input_output_pairs[sample["task_id"]]
+            if extract_function_outputs:
+                if sample["task_id"] not in task_id_to_input_output_pairs:
+                    try:
+                        pair = extract_input_output_pairs_from_assert_statements_in_function(problems[sample["task_id"]]["test"])
+                    except Exception:
+                        pair = None
+                    task_id_to_input_output_pairs[sample["task_id"]] = pair
+                input_output_pair = task_id_to_input_output_pairs[sample["task_id"]]
+            else:
+                input_output_pair = None
 
             future = executor.submit(
                 check_correctness,
@@ -221,8 +226,8 @@ def evaluate_only_functional_correctness(
                 sample["completion"],
                 timeout,
                 completion_id[sample["task_id"]],
-                input_output_pair
-
+                input_output_pair,
+                hash_function_outputs
             )
 
             futures[future] =  (sample["task_id"], completion_id[sample["task_id"]])
