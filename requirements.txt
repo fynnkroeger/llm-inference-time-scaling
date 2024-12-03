@@ -1,4 +1,4 @@
 vllm
 numpy
 matplotlib
-coolname
+tqdm
