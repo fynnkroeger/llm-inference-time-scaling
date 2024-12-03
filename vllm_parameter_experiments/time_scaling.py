@@ -1,6 +1,6 @@
-from inference import run_experiment
-from run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
-from inference import experiments_file
+from vllm_parameter_experiments.inference import run_experiment
+from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
+from vllm_parameter_experiments.inference import experiments_file
 import matplotlib.pyplot as plt
 import json
 

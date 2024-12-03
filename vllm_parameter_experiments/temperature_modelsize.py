@@ -1,10 +1,10 @@
-from inference import run_experiment
-from run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
+from vllm_parameter_experiments.inference import run_experiment
+from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
 output_files = {}
-# run experiments
+# run vllm_parameter_experiments
 models = [
     "meta-llama/Llama-3.2-1B",
     "meta-llama/Llama-3.2-3B",

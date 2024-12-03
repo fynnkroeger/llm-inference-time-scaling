@@ -1,6 +1,6 @@
 from pathlib import Path
 from human_eval.evaluation import estimate_pass_at_k
-from inference import out_path
+from vllm_parameter_experiments.inference import out_path
 import numpy as np
 import json
 from human_eval.data import HUMAN_EVAL, read_problems, stream_jsonl, write_jsonl
@@ -39,7 +39,6 @@ def evaluate_functional_correctness(
 
         assert len(completion_id) == len(problems), "Some problems are not attempted."
 
-        print("Running test suites...")
         for future in tqdm.tqdm(as_completed(futures), total=len(futures)):
             result = future.result()
             results[result["task_id"]].append((result["completion_id"], result))
