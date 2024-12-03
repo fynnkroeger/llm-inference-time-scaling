@@ -217,7 +217,7 @@ def plot_error_per_category(experiment_path: Path, error_counts: dict[str, Count
     plt.figure(figsize=(10, 6))
     sns.barplot(x=category_name, y='total_errors', data=df)    
     plt.axhline(y=mean_errors, color='black', linestyle='--', label=f'Mean: {mean_errors:.2f}')
-    plt.text(x=len(df) + 15, y=mean_errors + 0.1, s='Mean', color='black', va='center', ha='right')
+    plt.text(x=len(df) * 1.055, y=mean_errors + 0.1, s='Mean', color='black', va='center', ha='right')
     plt.xlabel(f"{category_name}s")
     plt.ylabel('Number of Errors')
     plt.title(f'Errors per {category_name}')
@@ -254,7 +254,7 @@ def plot_error_bar_charts_per_category(experiment_path: Path, error_counts: dict
     pivot_df.plot(kind='bar', stacked=True, colormap='viridis', figsize=(12, 8))
     plt.xlabel(f'{category_name}s')
     plt.ylabel('Number of Errors')
-    plt.legend(title="Error Types", bbox_to_anchor=(-0.35, 0.5), loc='center left', fontsize=12)
+    plt.legend(title="Error Types", bbox_to_anchor=(-0.4, 0.5), loc='center left', fontsize=12)
     plt.xticks(rotation=0)
     
     # Save the plot to a file
@@ -344,8 +344,8 @@ def plot_statistics(base_path: str, experiment_name: str, num_samples: int):
     plot_error_per_category(experiment_path, task_error_counts, "task")
     plot_error_per_category(experiment_path, sample_error_counts, "sample")
     
-    plot_error_bar_charts_per_category(experiment_path, task_error_counts, "task", 10)
-    plot_error_bar_charts_per_category(experiment_path, sample_error_counts, "sample", 4)
+    plot_error_bar_charts_per_category(experiment_path, task_error_counts, "task", 20)
+    plot_error_bar_charts_per_category(experiment_path, sample_error_counts, "sample", 10)
     
     print(f"\nSuccessfully created plots for {experiment_name}")
     
@@ -376,4 +376,5 @@ if __name__ == "__main__":
     # If set to false errors are grouped by sample
     group_by_tasks = False
     
-    get_errors_per_category(base_path, experiment_name, num_samples, group_by_tasks, print_all)
+    # get_errors_per_category(base_path, experiment_name, num_samples, group_by_tasks, print_all)
+    plot_statistics(base_path, experiment_name, num_samples)
