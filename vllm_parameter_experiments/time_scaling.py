@@ -4,6 +4,8 @@ from vllm_parameter_experiments.inference import experiments_file, plots_path
 import matplotlib.pyplot as plt
 import json
 
+# more time measurements per datapoint?
+
 optimal = [
     ("meta-llama/Llama-3.1-8B", 0.6),
     ("meta-llama/Llama-3.2-3B", 0.7),
@@ -14,7 +16,6 @@ n_values = [2 ** i for i in range(9)]
 output_files = {}
 for model, t in optimal:
     for n in n_values:
-        print(model, n)
         sampling_params = dict(temperature=t, n=n, max_tokens=128)
         llm_params = dict(model=model, gpu_memory_utilization=0.75)
         out_file = run_experiment(sampling_params, llm_params, evaluate=False)
@@ -34,18 +35,30 @@ for model, t in optimal:
     times = []
     for (out_file, config), result_file in zip(output_files.items(), result_files):
         if config["model"] == model and config["temperature"] == t:
-            print(experiments[out_file])
             time_taken = experiments[out_file]["generation_time"]
             times.append(time_taken)
-        # use pass at k from biggest run as better estimation?
-        if config["n"] == max(n_values):
-            passes = list(calc_pass_at_k_from_results(result_file, n_values).values())
+            if config["n"] == max(n_values):
+                passes = list(calc_pass_at_k_from_results(result_file, n_values).values())
     ax.plot(times, passes, label=model)
-    print(model)
 ax.set_ylabel("HumanEval pass@k")
 ax.set_xlabel("time [s]")
 ax.set_xscale("log")
 ax.legend()
 plt.savefig(plots_time / "time.png", dpi=300)
 
-# another plot with k and time
+fig, ax = plt.subplots()
+for model, t in optimal:
+    times = []
+    for (out_file, config), result_file in zip(output_files.items(), result_files):
+        if config["model"] == model and config["temperature"] == t:
+            time_taken = experiments[out_file]["generation_time"]
+            times.append(time_taken)
+    ax.plot(n_values, times, label=model)
+ax.plot()
+ax.set_ylabel("time [s]")
+ax.set_xlabel("k")
+ax.set_xscale("log", base=2)
+ax.set_yscale("log")
+ax.legend()
+
+plt.savefig(plots_time / "time_k.png", dpi=300)
