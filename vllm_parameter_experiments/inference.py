@@ -7,9 +7,12 @@ from os import environ
 import uuid
 import json
 
-out_path = Path("/raid/shared/llm-inference-scaling/outputs")
-out_path.mkdir(exist_ok=True, parents=True)
-experiments_file = out_path / "_experiments.json"
+experiment_path = Path("/raid/shared/llm-inference-scaling/vllm_parameter_experiments")
+output_path = experiment_path / "outputs"
+output_path.mkdir(exist_ok=True, parents=True)
+experiments_file = experiment_path / "_experiments.json"
+plots_path = experiment_path / "plots"
+plots_path.mkdir(exist_ok=True, parents=True)
 
 
 def run_generation(out_file, sampling_params, llm_params):
@@ -38,7 +41,7 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
             experiments = json.load(f)
         to_delete = []
         for name in experiments:
-            if not (out_path / name).exists():
+            if not (output_path / name).exists():
                 to_delete.append(name)
         if to_delete:
             for name in to_delete:
@@ -57,7 +60,7 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
             return file_name
 
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
-    out_file = out_path / name
+    out_file = output_path / name
     generation_time = run_generation(out_file, sampling_params, llm_params)
 
     # write only when completed

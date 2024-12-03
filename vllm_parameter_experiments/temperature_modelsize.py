@@ -1,4 +1,4 @@
-from vllm_parameter_experiments.inference import run_experiment
+from vllm_parameter_experiments.inference import run_experiment, plots_path
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -24,6 +24,9 @@ for out_file in output_files:
 
 # generate graphs / tables / ...
 print("plotting...")
+
+plots_temperature = plots_path / "temperature"
+plots_temperature.mkdir(exist_ok=True, parents=True)
 k_values = range(1, 256 + 1)
 cmap = plt.get_cmap("viridis")
 norm = Normalize(vmin=0.4, vmax=1.2)
@@ -47,7 +50,7 @@ for model in models:
     ax.legend()
     ax.set_ylabel("HumanEval pass@k")
     ax.set_xlabel("k")
-    plt.savefig(f"{model_name_clean}.png", dpi=300)  # todo better path to write plots
+    plt.savefig(plots_temperature / f"{model_name_clean}.png", dpi=300)  # todo better path to write plots
 
 
 fig, ax = plt.subplots()
@@ -66,4 +69,4 @@ ax.set_title("model sizes at optimal temperature")
 ax.legend()
 ax.set_ylabel("HumanEval pass@k")
 ax.set_xlabel("k")
-plt.savefig("all_models.png", dpi=300)
+plt.savefig(plots_temperature / "all_models.png", dpi=300)

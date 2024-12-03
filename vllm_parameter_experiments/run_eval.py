@@ -1,6 +1,6 @@
 from pathlib import Path
 from human_eval.evaluation import estimate_pass_at_k
-from vllm_parameter_experiments.inference import out_path
+from vllm_parameter_experiments.inference import output_path
 import numpy as np
 import json
 from human_eval.data import HUMAN_EVAL, read_problems, stream_jsonl, write_jsonl
@@ -58,11 +58,11 @@ def evaluate_functional_correctness(
 
 
 def evaluate_and_save_results(file_name: str) -> Path:
-    eval_result_path = out_path / f"{file_name}_results.jsonl"  # hardcoded in humaneval
+    eval_result_path = output_path / f"{file_name}_results.jsonl"  # hardcoded in humaneval
     if eval_result_path.exists():
         print("eval already performed, skipping")
         return eval_result_path
-    evaluate_functional_correctness(str(out_path / file_name))
+    evaluate_functional_correctness(str(output_path / file_name))
     assert eval_result_path.exists()
     return eval_result_path
 

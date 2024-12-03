@@ -1,6 +1,6 @@
 from vllm_parameter_experiments.inference import run_experiment
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
-from vllm_parameter_experiments.inference import experiments_file
+from vllm_parameter_experiments.inference import experiments_file, plots_path
 import matplotlib.pyplot as plt
 import json
 
@@ -24,7 +24,8 @@ result_files = []
 for out_file in output_files:
     result_files.append(evaluate_and_save_results(out_file))
 
-print(output_files)
+plots_time = plots_path / "time"
+plots_time.mkdir(exist_ok=True, parents=True)
 
 with open(experiments_file, "r") as f:
     experiments = json.load(f)
@@ -45,6 +46,6 @@ ax.set_ylabel("HumanEval pass@k")
 ax.set_xlabel("time [s]")
 ax.set_xscale("log")
 ax.legend()
-plt.savefig("time.png", dpi=300)
+plt.savefig(plots_time / "time.png", dpi=300)
 
 # another plot with k and time
