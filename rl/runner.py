@@ -194,8 +194,7 @@ def evaluate_only_functional_correctness(
     hash_function_outputs: bool = True
 ) -> list[dict]:
     """
-    Evaluates the functional correctness of generated samples and writes
-    results to f"{sample_file}_results.jsonl.gz"
+    Evaluates the functional correctness of generated samples
     """
     n_samples = len(samples)
 
