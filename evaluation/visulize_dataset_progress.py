@@ -51,6 +51,8 @@ class DatasetPlots(BaseModel):
         plt.figure()
         sns.lineplot(data=df, x=metric, y="cumulative_solved")
         os.makedirs(os.path.join("outputs", self.plots_folder_name), exist_ok=True)
+        plt.xscale(self.x_axis_scale)
+
         plt.savefig(os.path.join("outputs", self.plots_folder_name, f"{metric}.png"))
             
     def execute(self):
