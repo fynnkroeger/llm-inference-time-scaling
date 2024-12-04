@@ -1,6 +1,7 @@
 from collections import defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import ast
+from multiprocessing.managers import SyncManager
 import tqdm
 
 from human_eval.data import HUMAN_EVAL, read_problems
@@ -10,6 +11,7 @@ from human_eval.execution import create_tempdir, reliability_guard, swallow_io, 
 from typing import Optional, Dict
 import multiprocessing
 import operator
+from shared_utils.code_evaluation.radix_tree import RadixTree
 
 # Supported operators
 OPS = {
@@ -24,7 +26,8 @@ OPS = {
 SUPPORTED_FUNCTIONS = {
     "str": str
 }
-
+# 5:10 with cache
+test_results_cache = RadixTree.from_disk()
 
 # Adds the ability to evaluate a bit more complicated expressions than ast.literal_eval can handle
 def eval_ast(node, context: dict={}):
@@ -156,42 +159,56 @@ def check_correctness(problem: Dict, completion: str, timeout: float, completion
             shutil.rmtree = rmtree
             os.rmdir = rmdir
             os.chdir = chdir
-
-    manager = multiprocessing.Manager()
-    test_results = manager.list()
-    function_outputs = manager.list()
-
-    if input_output_pairs is not None:
-        for _ in range(len(input_output_pairs)):
-            test_results.append(False)
-            function_outputs.append("TimeoutException")
   
-  
-    p = multiprocessing.Process(target=unsafe_execute, args=[input_output_pairs])
-    p.start()
-    p.join(timeout=timeout + 1)
-    if p.is_alive():
-        p.kill()
+    complete_program = problem["prompt"] + completion
+    complete_test_results = test_results_cache.get(complete_program)
+    if complete_test_results is None:
+        manager: SyncManager = multiprocessing.Manager()
+        test_results = manager.list()
+        function_outputs = manager.list()
+
+        if input_output_pairs is not None:
+            for _ in range(len(input_output_pairs)):
+                test_results.append(False)
+                function_outputs.append("TimeoutException")
+
+        p = multiprocessing.Process(target=unsafe_execute, args=[input_output_pairs])
+        p.start()
+        p.join(timeout=timeout + 1)
+        if p.is_alive():
+            p.kill()
+        complete_test_results = dict(
+            passed=all(test_results),
+            function_outputs=tuple(list(function_outputs)), # We need to convert the multiprocessing proxy list to a normal list.
+            test_results=list(test_results),
+            failed_to_parse_test_cases=input_output_pairs is None
+        )
+        test_results_cache.add(complete_program, complete_test_results)
 
     return dict(
         task_id=problem["task_id"],
-        passed=all(test_results),
-        function_outputs=tuple(list(function_outputs)), # We need to convert the multiprocessing proxy list to a normal list.
-        test_results=list(test_results),
-        completion_id=completion_id,
-        failed_to_parse_test_cases=input_output_pairs is None
-    )
+        completion_id=completion_id
+    ) | complete_test_results
 
 
 problems = read_problems(HUMAN_EVAL)
+task_id_to_input_output_pairs = {}
+
+for task_id, problem in problems.items():
+    try:
+        pair = extract_input_output_pairs_from_assert_statements_in_function(problem["test"])
+    except Exception:
+        pair = None
+    task_id_to_input_output_pairs[task_id] = pair
 
 
 def evaluate_only_functional_correctness(
     samples: list[dict],
-    n_workers: int = 64,
-    timeout: float = 3.0,
+    n_workers: int = 128,
+    timeout: float = 1.5,
     extract_function_outputs: bool = False,
-    hash_function_outputs: bool = True
+    hash_function_outputs: bool = True,
+    verbose: bool = False
 ) -> list[dict]:
     """
     Evaluates the functional correctness of generated samples
@@ -202,19 +219,13 @@ def evaluate_only_functional_correctness(
     completion_id = Counter()
     results = defaultdict(list)
 
-    task_id_to_input_output_pairs = {}
+    
     # Run test cases in parallel using ProcessPoolExecutor
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = {}
         for sample in samples:
             # Extract input output pair if not cached yet
             if extract_function_outputs:
-                if sample["task_id"] not in task_id_to_input_output_pairs:
-                    try:
-                        pair = extract_input_output_pairs_from_assert_statements_in_function(problems[sample["task_id"]]["test"])
-                    except Exception:
-                        pair = None
-                    task_id_to_input_output_pairs[sample["task_id"]] = pair
                 input_output_pair = task_id_to_input_output_pairs[sample["task_id"]]
             else:
                 input_output_pair = None
@@ -232,8 +243,8 @@ def evaluate_only_functional_correctness(
             futures[future] =  (sample["task_id"], completion_id[sample["task_id"]])
 
         # Collect results as they complete
-        print("Running test suites...")
-        for future in tqdm.tqdm(as_completed(futures), total=n_samples):
+        futures_iterator = tqdm.tqdm( as_completed(futures),desc="Running test", total=n_samples) if verbose else as_completed(futures)
+        for future in futures_iterator:
             task_id, comp_id = futures[future]
             try:
                 result = future.result()
