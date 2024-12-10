@@ -14,6 +14,7 @@ class TokenIdNode(TypedDict):
 class BaseTokenIdsPrefixTree(ABC):
     def __init__(self) -> None:
         self.prompt_root: dict[tuple[int,...], TokenIdNode] = {}
+        self.prompt_root_token_ids: dict[str, tuple[int,...]] = {}
 
     def _create_empty_node(self, token_id: Optional[int], node_log_prob: float) -> TokenIdNode:
         return {
@@ -28,17 +29,37 @@ class BaseTokenIdsPrefixTree(ABC):
 
         }
 
-    @abstractmethod
     def _update_node_metrics(self, node: TokenIdNode, continuation_probability: float, path_length: int, hashed_function_outputs:Optional[int]) -> None:
         """Update the node's metrics based on the specific search strategy."""
         pass
 
-    @abstractmethod
     def _get_adjustment_factor(self, node: TokenIdNode) -> float:
         """Calculate the adjustment factor for logits based on the specific search strategy."""
         pass
+    
+    def get_prefix_logprobs(self, prompt_token_ids: tuple[int], prefix_token_ids: list[int]) -> list[dict]:
+        result = []
+        if not prefix_token_ids:
+            return result
+        node = self.prompt_root[prompt_token_ids]
+        count = 0
+        for prefix_token_id in prefix_token_ids:
+            if not prefix_token_id in node["children_token_ids"]:
+                print(prefix_token_ids)
+                print(node["children_token_ids"])
+                print(count)
+            count += 1
+            node = node["children_token_ids"][prefix_token_id]
+            result.append({"token_id": prefix_token_id, "logprob": node["node_log_prob"]})
+        return result
 
-    def add_sequence(self, prompt_token_ids: list[int], token_ids: list[int], log_probs: list[float], hashed_function_outputs : Optional[int]=None) -> None:
+    def get_prompt_token_ids_from_task_ids(self, task_ids : list[str]) -> list[tuple[int,...]]:
+        result = []
+        for task_id in task_ids:
+            result.append(self.prompt_root_token_ids[task_id])
+        return result
+
+    def add_sequence(self, prompt_token_ids: list[int], token_ids: list[int], log_probs: list[float], hashed_function_outputs : Optional[int]=None, task_id : Optional[str]=None) -> None:
         assert len(token_ids) == len(log_probs), "Each token_id must have one log_prob. However, the two lists have different lengths"
         
         # Calculate continuation probabilities from each position to the end
@@ -51,6 +72,8 @@ class BaseTokenIdsPrefixTree(ABC):
         prompt_token_ids_as_tuple = tuple(prompt_token_ids)
         if prompt_token_ids_as_tuple not in self.prompt_root:
             self.prompt_root[prompt_token_ids_as_tuple] = self._create_empty_node(None, 0.0)
+            if task_id is not None:
+                self.prompt_root_token_ids[task_id] = prompt_token_ids_as_tuple
 
         node = self.prompt_root[prompt_token_ids_as_tuple]
         for i in range(len(token_ids)):
