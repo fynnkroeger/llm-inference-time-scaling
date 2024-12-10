@@ -7,6 +7,16 @@ def read_samples(file_path: str) -> list:
             data.append(json.loads(line))
     return data
 
+def get_all_task_ids_and_prompts(problems: dict) -> tuple[list[str], list[str]]:
+    prompts = []
+    task_ids = []
+    for task_id in problems:
+        prompt = problems[task_id]["prompt"]
+        task_ids.append(task_id)
+        prompts.append(prompt)
+    return task_ids, prompts
+    
+
 def get_task_ids_and_prompts_for_non_solved_problems(
     solved_problems: dict[str, bool], problems: dict
 ) -> tuple[list[str], list[str]]:
