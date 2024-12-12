@@ -1,4 +1,5 @@
 import json
+import time
 
 def read_samples(file_path: str) -> list:
     data = []
@@ -18,7 +19,7 @@ def get_all_task_ids_and_prompts(problems: dict) -> tuple[list[str], list[str]]:
     
 
 def get_task_ids_and_prompts_for_non_solved_problems(
-    solved_problems: dict[str, bool], problems: dict
+    solved_problems: dict, problems: dict
 ) -> tuple[list[str], list[str]]:
     prompts = []
     task_ids = []
@@ -31,12 +32,15 @@ def get_task_ids_and_prompts_for_non_solved_problems(
 
 from shared_utils.code_evaluation.runner import evaluate_only_functional_correctness
 
-def judge_problems(outputs: list, task_ids: list[str], extract_function_outputs: bool = False, hash_function_outputs: bool = True) -> tuple[dict[str, bool], list]:
+def judge_problems(outputs: list, task_ids: list[str], extract_function_outputs: bool = False, hash_function_outputs: bool = True, start_time: float = None) -> tuple[dict[str, bool], list]:
     results = evaluate_only_functional_correctness(outputs, n_workers=64, extract_function_outputs=extract_function_outputs, hash_function_outputs=hash_function_outputs)
 
     solved_problems = {}
     for result in results:
         if result["passed"]:
-            solved_problems[result["task_id"]] = True
+            if start_time:
+                solved_problems[result["task_id"]] = time.time() - start_time
+            else:
+                solved_problems[result["task_id"]] = True
             
     return solved_problems, results
