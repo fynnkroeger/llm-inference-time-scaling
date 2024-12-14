@@ -14,7 +14,6 @@ class TokenIdNode(TypedDict):
 class BaseTokenIdsPrefixTree(ABC):
     def __init__(self) -> None:
         self.prompt_root: dict[tuple[int,...], TokenIdNode] = {}
-        self.prompt_root_token_ids: dict[str, tuple[int,...]] = {}
 
     def _create_empty_node(self, token_id: Optional[int], node_log_prob: float) -> TokenIdNode:
         return {
@@ -36,28 +35,6 @@ class BaseTokenIdsPrefixTree(ABC):
     def _get_adjustment_factor(self, node: TokenIdNode) -> float:
         """Calculate the adjustment factor for logits based on the specific search strategy."""
         pass
-    
-    def get_prefix_logprobs(self, prompt_token_ids: tuple[int], prefix_token_ids: list[int]) -> list[dict]:
-        result = []
-        if not prefix_token_ids:
-            return result
-        node = self.prompt_root[prompt_token_ids]
-        count = 0
-        for prefix_token_id in prefix_token_ids:
-            if not prefix_token_id in node["children_token_ids"]:
-                print(prefix_token_ids)
-                print(node["children_token_ids"])
-                print(count)
-            count += 1
-            node = node["children_token_ids"][prefix_token_id]
-            result.append({"token_id": prefix_token_id, "logprob": node["node_log_prob"]})
-        return result
-
-    def get_prompt_token_ids_from_task_ids(self, task_ids : list[str]) -> list[tuple[int,...]]:
-        result = []
-        for task_id in task_ids:
-            result.append(self.prompt_root_token_ids[task_id])
-        return result
 
     def add_sequence(self, prompt_token_ids: list[int], token_ids: list[int], log_probs: list[float], hashed_function_outputs : Optional[int]=None, task_id : Optional[str]=None) -> None:
         assert len(token_ids) == len(log_probs), "Each token_id must have one log_prob. However, the two lists have different lengths"
@@ -81,6 +58,12 @@ class BaseTokenIdsPrefixTree(ABC):
             self._update_node_metrics(node, continuation_probability, len(token_ids) - i, hashed_function_outputs)
             if token_ids[i] not in node["children_token_ids"]:
                 node["children_token_ids"][token_ids[i]] = self._create_empty_node(token_ids[i], log_probs[i])
+                if "cumulative_probs" in node:
+                    if node["cumulative_probs"]:
+                        node["cumulative_probs"].append(node["cumulative_probs"][-1] + math.exp(log_probs[i]))
+                    else:
+                        node["cumulative_probs"].append(math.exp(log_probs[i]))
+                    node["child_keys"].append(token_ids[i])
             node = node["children_token_ids"][token_ids[i]]
 
     def adjust_logits_fast(self, prompt_token_ids: list[int], output_token_ids: list[int], logits: torch.Tensor) -> torch.Tensor:
@@ -118,6 +101,40 @@ class BaseTokenIdsPrefixTree(ABC):
         logits[~mask_adjusted] += C
 
         return logits
+    
+class PrefixTreeCumulativeProbabilities(BaseTokenIdsPrefixTree):
+    def __init__(self) -> None:
+        super().__init__()
+        self.prompt_root_token_ids: dict[str, tuple[int,...]] = {}
+    
+    
+    def _additional_node_attributes(self, token_id: Optional[int], node_log_prob: float) -> dict:
+        return {
+            "cumulative_probs": [],
+            "child_keys": []
+        }
+    
+    def get_prefix_logprobs(self, prompt_token_ids: tuple[int], prefix_token_ids: list[int]) -> list[dict]:
+        result = []
+        if not prefix_token_ids:
+            return result
+        node = self.prompt_root[prompt_token_ids]
+        count = 0
+        for prefix_token_id in prefix_token_ids:
+            if not prefix_token_id in node["children_token_ids"]:
+                print(prefix_token_ids)
+                print(node["children_token_ids"])
+                print(count)
+            count += 1
+            node = node["children_token_ids"][prefix_token_id]
+            result.append({"token_id": prefix_token_id, "logprob": node["node_log_prob"]})
+        return result
+
+    def get_prompt_token_ids_from_task_ids(self, task_ids : list[str]) -> list[tuple[int,...]]:
+        result = []
+        for task_id in task_ids:
+            result.append(self.prompt_root_token_ids[task_id])
+        return result
 
 class ExpectedValueSearchTree(BaseTokenIdsPrefixTree):
     """

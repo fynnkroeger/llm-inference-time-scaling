@@ -7,12 +7,13 @@ from shared_utils.naming_utils import generate_unique_name
 from shared_utils.iterative_baseline import run_iterative_baseline
 
 from os import environ
+from bisect import bisect_left
 import random
 import math
 import time
 import coolname
 import json
-from mcts.token_ids_prefix_tree import BaseTokenIdsPrefixTree
+from mcts.token_ids_prefix_tree import PrefixTreeCumulativeProbabilities
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
 
@@ -72,7 +73,7 @@ def run_prefix_experiment(config):
     start_time = time.time()
     time_per_gen = []
     
-    tree = BaseTokenIdsPrefixTree()
+    tree = PrefixTreeCumulativeProbabilities()
     solved_task_ids, samples = generate_first_iteration(problems, sampling_params, llm, generation_step_size, start_time)
     time_per_gen.append(time.time() - start_time)
     save_to_tree(samples, tree)
@@ -84,34 +85,23 @@ def run_prefix_experiment(config):
         
         new_prompts = []
         prefixes = []
-        # first = True
         for prompt_token_id in prompt_token_ids:
             prefix = []
             node = tree.prompt_root[prompt_token_id]
-            found = True
-            while found:
+            while True:
                 if not node["children_token_ids"]:
                     # There are no saved child tokens, so the LLM has to generate from here
                     break
                 r = random.uniform(0, 1)
-                found = False
-                # if first:
-                #     print("___")
-                for child_key in node["children_token_ids"]:
-                    child_node = node["children_token_ids"][child_key]
-                    # if first:
-                    #     print(math.exp(child_node["node_log_prob"]), node["token_id"], child_node["token_id"])
-                    # TODO: This is not how the llm samples
-                    r -= math.exp(child_node["node_log_prob"])
-                    if r <= 0:
-                        found = True
-                        assert child_node["token_id"] is not None
-                        # if first:
-                        #     print("^^^^^^^^^^^^")
-                        # is None for prompt_root_node
-                        prefix.append(child_node["token_id"])
-                        node = child_node
-                        break
+                if r > node["cumulative_probs"][-1]:
+                    break
+                index = bisect_left(node["cumulative_probs"], r)
+                child_key = node["child_keys"][index]
+                child_node = node["children_token_ids"][child_key]
+                assert child_node["token_id"] is not None
+                # is None for prompt_root_node
+                prefix.append(child_node["token_id"])
+                node = child_node
                 
             new_prompts.append(list(prompt_token_id) + prefix)
             prefixes.append(prefix)
@@ -175,14 +165,14 @@ if __name__ == "__main__":
     )
     exp_name = generate_unique_name(experiment_path)
     
-    start_time = time.time()
+    start_round_time = time.time()
     prefix_samples, prefix_solved_task_ids, prefix_time_per_gen = run_prefix_experiment(config)
-    prefix_time = time.time() - start_time
+    prefix_time = time.time() - start_round_time
     print(f"Prefix samplig: time: {prefix_time}, solved: {len(prefix_solved_task_ids)}")
     
-    start_time = time.time()
+    start_round_time = time.time()
     base_samples, base_solved_task_ids, base_time_per_gen = run_iterative_baseline(config)
-    base_time = time.time() - start_time
+    base_time = time.time() - start_round_time
     print(f"Baseline: time: {base_time}, solved: {len(base_solved_task_ids)}")
     
     output_path = experiment_path / exp_name
