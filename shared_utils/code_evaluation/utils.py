@@ -30,6 +30,18 @@ def get_task_ids_and_prompts_for_non_solved_problems(
             prompts.append(prompt)
     return task_ids, prompts
 
+def get_task_ids_and_prompt_token_ids_for_non_solved_problems(
+    solved_problems: dict, problems: dict[str, list]
+) -> tuple[list[str], list[list]]:
+    prompt_token_ids = []
+    task_ids = []
+    for task_id in problems:
+        if task_id not in solved_problems:
+            prompt_token_id = problems[task_id]
+            task_ids.append(task_id)
+            prompt_token_ids.append(prompt_token_id)
+    return task_ids, prompt_token_ids
+
 from shared_utils.code_evaluation.runner import evaluate_only_functional_correctness
 
 def judge_problems(outputs: list, task_ids: list[str], extract_function_outputs: bool = False, hash_function_outputs: bool = True, start_time: float = None) -> tuple[dict[str, bool], list]:

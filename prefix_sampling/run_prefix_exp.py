@@ -1,7 +1,7 @@
 from vllm import LLM, SamplingParams
 from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
-from shared_utils.code_evaluation.utils import judge_problems, get_task_ids_and_prompts_for_non_solved_problems, get_all_task_ids_and_prompts
+from shared_utils.code_evaluation.utils import judge_problems, get_task_ids_and_prompt_token_ids_for_non_solved_problems, get_all_task_ids_and_prompts
 from shared_utils.code_evaluation.runner import test_results_cache
 from shared_utils.naming_utils import generate_unique_name
 from shared_utils.iterative_baseline import run_iterative_baseline
@@ -17,7 +17,7 @@ from mcts.token_ids_prefix_tree import PrefixTreeCumulativeProbabilities
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
 
-environ["CUDA_VISIBLE_DEVICES"] = "1"  # todo do this differently
+environ["CUDA_VISIBLE_DEVICES"] = "0"  # todo do this differently
 environ["TOKENIZERS_PARALLELISM"] = "true" 
 
 def save_to_tree(judged_samples, tree):
@@ -66,27 +66,34 @@ def run_prefix_experiment(config):
     assert n % generation_step_size == 0, "n must be divisble by the generation_step_size"
 
     problems = read_problems()
-    llm = LLM(model=config["model"])
+    llm = LLM(model=config["model"], enable_prefix_caching=False)
     tokenizer = llm.get_tokenizer()
     sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_tokens, logprobs=0, n=generation_step_size) # logprobs includes 1 (decoded token) + $logprobs
     
-    start_time = time.time()
-    time_per_gen = []
+    task_ids, prompts = get_all_task_ids_and_prompts(problems)
+    prompt_token_ids = tokenizer(prompts)['input_ids']
+    problems = dict(zip(task_ids, prompt_token_ids))
     
+    time_per_gen = []
+    other_time_per_gen = []
+    start_time = time.time()
+    
+    samples = []
+    solved_task_ids = {}
     tree = PrefixTreeCumulativeProbabilities()
-    solved_task_ids, samples = generate_first_iteration(problems, sampling_params, llm, generation_step_size, start_time)
-    time_per_gen.append(time.time() - start_time)
-    save_to_tree(samples, tree)
 
-    for k in range(generation_step_size, n, generation_step_size):
-        task_ids, prompts = get_task_ids_and_prompts_for_non_solved_problems(solved_task_ids, problems)
-        prompt_token_ids = tree.get_prompt_token_ids_from_task_ids(task_ids)
-        assert not prompt_token_ids == [], "Promts to token_ids should have been converted by previous generation."
+    for k in range(0, n, generation_step_size):
+        task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
         
         new_prompts = []
         prefixes = []
-        for prompt_token_id in prompt_token_ids:
+        for prompt_token_id_list in prompt_token_ids:
+            prompt_token_id = tuple(prompt_token_id_list)
             prefix = []
+            if not prompt_token_id in tree.prompt_root:
+                new_prompts = prompt_token_ids
+                prefixes = [[] for i in range(len(prompt_token_ids))]
+                break
             node = tree.prompt_root[prompt_token_id]
             while True:
                 if not node["children_token_ids"]:
@@ -103,17 +110,16 @@ def run_prefix_experiment(config):
                 prefix.append(child_node["token_id"])
                 node = child_node
                 
-            new_prompts.append(list(prompt_token_id) + prefix)
+            new_prompts.append(prompt_token_id_list + prefix)
             prefixes.append(prefix)
-            # if first:
-            #     print(tokenizer.decode(prefix))
-            # first = False
+            
         
         # TODO: max_tokens should be different, because the prompt now contains part of the output
         raw_outputs = llm.generate(prompt_token_ids = new_prompts, sampling_params = sampling_params)
-        
+                
         new_samples = []
-        for task_id, prompt_token_id, output, prefix in zip(task_ids, prompt_token_ids, raw_outputs, prefixes):
+        for task_id, prompt_token_id_list, output, prefix in zip(task_ids, prompt_token_ids, raw_outputs, prefixes):
+            prompt_token_id = tuple(prompt_token_id_list)
             # Add prefix to every output completion
             prefix_logprobs = tree.get_prefix_logprobs(prompt_token_id, prefix)
             for completion_output in output.outputs:
@@ -136,23 +142,18 @@ def run_prefix_experiment(config):
                     "prefix_len": len(prefix)
                 })
         
+        t_1 = time.time()
         solved_problems, judged_samples = judge_problems(new_samples, task_ids, start_time = start_time)
-        
-        # for judge_problem, prefix in zip(judged_samples, prefixes):
-        #     if judge_problem["passed"]:
-        #         print(f"Iteration {k}, Problem {judge_problem["task_id"]} passed, prefix:", end=' ')
-        #         if len(prefix) > 0:
-        #             print(tokenizer.decode(prefix))
-        #         else:
-        #             print("NOPREFIX")
+        other_time_per_gen.append(time.time() - t_1)
         
         save_to_tree(judged_samples, tree)
+        
         samples += judged_samples
         solved_task_ids = solved_task_ids | solved_problems
         
-        time_per_gen.append(time.time() - start_time)   
+        time_per_gen.append(time.time() - start_time) 
 
-    return samples, solved_task_ids, time_per_gen
+    return samples, solved_task_ids, time_per_gen, other_time_per_gen
     
 if __name__ == "__main__":
     config = dict(
@@ -160,18 +161,18 @@ if __name__ == "__main__":
         temperature = 0.6,
         top_p = 0.95,
         max_tokens = 128,
-        n = 1024,
-        model = "meta-llama/Llama-3.2-1B"
+        n = 124,
+        model = "meta-llama/Llama-3.1-8B"
     )
     exp_name = generate_unique_name(experiment_path)
     
     start_round_time = time.time()
-    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen = run_prefix_experiment(config)
+    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other = run_prefix_experiment(config)
     prefix_time = time.time() - start_round_time
     print(f"Prefix samplig: time: {prefix_time}, solved: {len(prefix_solved_task_ids)}")
     
     start_round_time = time.time()
-    base_samples, base_solved_task_ids, base_time_per_gen = run_iterative_baseline(config)
+    base_samples, base_solved_task_ids, base_time_per_gen, base_other = run_iterative_baseline(config)
     base_time = time.time() - start_round_time
     print(f"Baseline: time: {base_time}, solved: {len(base_solved_task_ids)}")
     
@@ -183,12 +184,16 @@ if __name__ == "__main__":
         json.dump(prefix_solved_task_ids, f, indent=4)
     with open(output_path / "gen_time_prefix_sampling.json", "w") as f:
         json.dump(prefix_time_per_gen, f, indent=4)
+    with open(output_path / "other_prefix_sampling.json", "w") as f:
+        json.dump(prefix_other, f, indent=4)
         
     write_jsonl(output_path / f"samples_baseline.jsonl", base_samples)
     with open(output_path / "times_baseline.json", "w") as f:
         json.dump(base_solved_task_ids, f, indent=4)
     with open(output_path / "gen_time_baseline.json", "w") as f:
         json.dump(base_time_per_gen, f, indent=4)
+    with open(output_path / "other_baseline.json", "w") as f:
+        json.dump(base_other, f, indent=4)
         
     with open(output_path / "config.json", "w") as f:
         json.dump(config, f, indent=4)

@@ -92,6 +92,34 @@ def plot_generation_time(experiment_name):
         plt.savefig("plot_time_per_gen.png")
     else:
         plt.savefig(ex_path / "plot_time_per_gen.png")
+        
+# Function to plot the time per generation
+def plot_other(experiment_name):
+    # Load JSON data from files
+    ex_path = experiment_path / experiment_name
+    file_path_prefix = ex_path / "other_prefix_sampling.json"
+    file_path_baseline = ex_path / "other_baseline.json"
+    with open(file_path_prefix, 'r') as file:
+        data_prefix = json.load(file)
+
+    with open(file_path_baseline, 'r') as file:
+        data_baseline = json.load(file)
+
+    # Plot the data
+    plt.figure(figsize=(10, 6))
+    plt.plot(data_prefix, marker='o', linestyle='-', color='b', label='Prefix Sampling')
+    plt.plot(data_baseline, marker='x', linestyle='--', color='r', label='Baseline')
+    plt.xlabel('Generation')
+    plt.ylabel('Other')
+    plt.title('Other Over Generations')
+    plt.legend()
+    plt.grid(True)
+
+    # Save the plot
+    if DEBUG:
+        plt.savefig("plot_other.png")
+    else:
+        plt.savefig(ex_path / "plot_other.png")
 
 # Entry point for the script
 if __name__ == "__main__":
@@ -101,3 +129,4 @@ if __name__ == "__main__":
         experiment_name = sys.argv[1]
         plot_problems_solved(experiment_name)
         plot_generation_time(experiment_name)
+        plot_other(experiment_name)
