@@ -1,4 +1,5 @@
 from vllm import LLM, SamplingParams
+from vllm.sampling_params import BeamSearchParams
 from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
 from time import time
@@ -15,24 +16,32 @@ plots_path = experiment_path / "plots"
 plots_path.mkdir(exist_ok=True, parents=True)
 
 
-def run_generation(out_file, sampling_params, llm_params):
+def run_generation(out_file, sampling_params, llm_params, beam_search=False):
     problems = read_problems()
     prompts = [problem["prompt"] for problem in problems.values()]
     task_ids = list(problems.keys())
 
     llm = LLM(**llm_params)
     t0 = time()
-    outputs = llm.generate(prompts, SamplingParams(**sampling_params))
-    generation_time = time() - t0
     samples = []
-    for tid, output in zip(task_ids, outputs):
-        for out in output.outputs:
-            samples.append(dict(task_id=tid, completion=out.text))
+    if beam_search:
+        outputs = llm.beam_search(prompts, BeamSearchParams(**sampling_params))
+        generation_time = time() - t0
+        for tid, output in zip(task_ids, outputs):
+            for out in output.sequences:
+                samples.append(dict(task_id=tid, completion=out.text))
+
+    else:
+        outputs = llm.generate(prompts, SamplingParams(**sampling_params))
+        generation_time = time() - t0
+        for tid, output in zip(task_ids, outputs):
+            for out in output.outputs:
+                samples.append(dict(task_id=tid, completion=out.text))
     write_jsonl(out_file, samples)
     return generation_time
 
 
-def run_experiment(sampling_params, llm_params, evaluate=False):
+def run_experiment(sampling_params, llm_params, evaluate=False, beam_search=False):
     environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -61,7 +70,7 @@ def run_experiment(sampling_params, llm_params, evaluate=False):
 
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
     out_file = output_path / name
-    generation_time = run_generation(out_file, sampling_params, llm_params)
+    generation_time = run_generation(out_file, sampling_params, llm_params, beam_search)
 
     # write only when completed
     experiments[name] = dict(
