@@ -52,6 +52,16 @@ for model in models:
     ax.set_xlabel("k")
     plt.savefig(plots_temperature / f"{model_name_clean}.png", dpi=300)  # todo better path to write plots
 
+fig, ax = plt.subplots()
+for (out_file, config), result_file in zip(output_files.items(), result_files):
+    if config["model"] == "meta-llama/Llama-3.2-1B" and config["temperature"] == 0.7:
+        pass_at_k = calc_pass_at_k_from_results(result_file, k_values)
+        ax.plot(k_values, list(pass_at_k.values()))
+ax.set_title("Llama-3.2-1B, t=0.7")
+ax.set_xscale("log", base=2)
+ax.set_ylabel("HumanEval pass@k")
+ax.set_xlabel("k")
+plt.savefig(plots_temperature / "one_line.png", dpi=300)
 
 fig, ax = plt.subplots()
 optimal = [
