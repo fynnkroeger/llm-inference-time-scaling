@@ -15,10 +15,15 @@ import coolname
 import json
 from mcts.token_ids_prefix_tree import PrefixTreeCumulativeProbabilities
 
-experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
-
 environ["CUDA_VISIBLE_DEVICES"] = "0"  # todo do this differently
-environ["TOKENIZERS_PARALLELISM"] = "true" 
+environ["TOKENIZERS_PARALLELISM"] = "true"
+
+DEBUG = True
+
+if DEBUG:
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test")
+else:
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
 
 def save_to_tree(judged_samples, tree):
     for judged_output in judged_samples:

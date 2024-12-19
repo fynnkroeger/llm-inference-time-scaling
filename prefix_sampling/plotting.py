@@ -7,8 +7,10 @@ import matplotlib.pyplot as plt
 
 DEBUG = True
 
-
-experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
+if DEBUG:
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test")
+else:
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
 
 # Function to plot the number of problems solved over time
 def plot_problems_solved(experiment_name):
