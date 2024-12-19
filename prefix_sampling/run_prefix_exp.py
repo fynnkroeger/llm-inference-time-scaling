@@ -75,7 +75,9 @@ def run_prefix_experiment(config):
     problems = dict(zip(task_ids, prompt_token_ids))
     
     time_per_gen = []
+    pure_gen_time = []
     other_time_per_gen = []
+    num_problems = []
     start_time = time.time()
     
     samples = []
@@ -83,6 +85,7 @@ def run_prefix_experiment(config):
     tree = PrefixTreeCumulativeProbabilities()
 
     for k in range(0, n, generation_step_size):
+        t_2 = time.time()
         task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
         
         new_prompts = []
@@ -115,7 +118,9 @@ def run_prefix_experiment(config):
             
         
         # TODO: max_tokens should be different, because the prompt now contains part of the output
+        t_3 = time.time()
         raw_outputs = llm.generate(prompt_token_ids = new_prompts, sampling_params = sampling_params)
+        pure_gen_time.append(time.time() - t_3)
                 
         new_samples = []
         for task_id, prompt_token_id_list, output, prefix in zip(task_ids, prompt_token_ids, raw_outputs, prefixes):
@@ -142,18 +147,20 @@ def run_prefix_experiment(config):
                     "prefix_len": len(prefix)
                 })
         
+        time_per_gen.append(time.time() - t_2) 
+        
         t_1 = time.time()
         solved_problems, judged_samples = judge_problems(new_samples, task_ids, start_time = start_time)
         other_time_per_gen.append(time.time() - t_1)
         
         save_to_tree(judged_samples, tree)
         
+        num_problems.append(len(task_ids))
+        
         samples += judged_samples
         solved_task_ids = solved_task_ids | solved_problems
         
-        time_per_gen.append(time.time() - start_time) 
-
-    return samples, solved_task_ids, time_per_gen, other_time_per_gen
+    return samples, solved_task_ids, time_per_gen, other_time_per_gen, pure_gen_time, num_problems
     
 if __name__ == "__main__":
     config = dict(
@@ -161,18 +168,18 @@ if __name__ == "__main__":
         temperature = 0.6,
         top_p = 0.95,
         max_tokens = 128,
-        n = 124,
+        n = 8,
         model = "meta-llama/Llama-3.1-8B"
     )
     exp_name = generate_unique_name(experiment_path)
     
     start_round_time = time.time()
-    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other = run_prefix_experiment(config)
+    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other, prefix_pure_gen_time, prefix_nums = run_prefix_experiment(config)
     prefix_time = time.time() - start_round_time
     print(f"Prefix samplig: time: {prefix_time}, solved: {len(prefix_solved_task_ids)}")
     
     start_round_time = time.time()
-    base_samples, base_solved_task_ids, base_time_per_gen, base_other = run_iterative_baseline(config)
+    base_samples, base_solved_task_ids, base_time_per_gen, base_other, base_pure_gen_time, base_nums = run_iterative_baseline(config)
     base_time = time.time() - start_round_time
     print(f"Baseline: time: {base_time}, solved: {len(base_solved_task_ids)}")
     
@@ -186,6 +193,10 @@ if __name__ == "__main__":
         json.dump(prefix_time_per_gen, f, indent=4)
     with open(output_path / "other_prefix_sampling.json", "w") as f:
         json.dump(prefix_other, f, indent=4)
+    with open(output_path / "pure_gen_time_prefix_sampling.json", "w") as f:
+        json.dump(prefix_pure_gen_time, f, indent=4)
+    with open(output_path / "num_problems_prefix_sampling.json", "w") as f:
+        json.dump(prefix_nums, f, indent=4)
         
     write_jsonl(output_path / f"samples_baseline.jsonl", base_samples)
     with open(output_path / "times_baseline.json", "w") as f:
@@ -194,6 +205,10 @@ if __name__ == "__main__":
         json.dump(base_time_per_gen, f, indent=4)
     with open(output_path / "other_baseline.json", "w") as f:
         json.dump(base_other, f, indent=4)
+    with open(output_path / "pure_gen_time_baseline.json", "w") as f:
+        json.dump(base_pure_gen_time, f, indent=4)
+    with open(output_path / "num_problems_baseline.json", "w") as f:
+        json.dump(base_nums, f, indent=4)
         
     with open(output_path / "config.json", "w") as f:
         json.dump(config, f, indent=4)
