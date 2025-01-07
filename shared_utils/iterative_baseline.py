@@ -10,7 +10,7 @@ import math
 import time
 from mcts.token_ids_prefix_tree import BaseTokenIdsPrefixTree
 
-def run_iterative_baseline(config):
+def run_iterative_baseline(config, llm):
     generation_step_size = config["generation_step_size"]
     temperature = config["temperature"]
     top_p = config["top_p"]
@@ -20,7 +20,6 @@ def run_iterative_baseline(config):
     assert n % generation_step_size == 0, "n must be divisble by the generation_step_size"
 
     problems = read_problems()
-    llm = LLM(model=config["model"], enable_prefix_caching=False)
     tokenizer = llm.get_tokenizer()
     sampling_params = SamplingParams(temperature=temperature, top_p=top_p, max_tokens=max_tokens, logprobs=0, n=generation_step_size) # logprobs includes 1 (decoded token) + $logprobs
     
@@ -38,10 +37,10 @@ def run_iterative_baseline(config):
     solved_task_ids = {}
 
     for k in range(0, n, generation_step_size):
-        t_2 = time.time()
-        task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
+        print(f"Iterative baseline, current generation: {k}")
         
-        # print(prompt_token_ids)
+        t_2 = time.time()
+        # task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
         
         t_3 = time.time()
         raw_outputs = llm.generate(prompt_token_ids = prompt_token_ids, sampling_params = sampling_params)
