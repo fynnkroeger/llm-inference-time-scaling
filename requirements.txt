@@ -2,3 +2,5 @@ vllm
 numpy
 matplotlib
 tqdm
+transformers
+accelerate>=0.26.0

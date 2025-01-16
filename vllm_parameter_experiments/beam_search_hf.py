@@ -25,20 +25,20 @@ def run_hf_beam(out_file, sampling_params, llm_params):
     tokenizer.pad_token = tokenizer.eos_token
     model = AutoModelForCausalLM.from_pretrained(llm_params["model_name"],
                                                  torch_dtype=torch.bfloat16,
-                                                 attn_implementation="sdpa", )
-    model.to("cuda")
+                                                 attn_implementation="sdpa", device_map="auto")
     samples = []
     t0 = time()
 
     tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
     # Generate text using beam search
-    beam_output = model.generate(
-        tokenized.input_ids.to("cuda"),
-        attention_mask=tokenized.attention_mask.to("cuda"),
-        pad_token_id=tokenizer.eos_token_id,
-        **sampling_params,
-        early_stopping=True,
-    )
+    with torch.no_grad():
+        beam_output = model.generate(
+            tokenized.input_ids.to("cuda"),
+            attention_mask=tokenized.attention_mask.to("cuda"),
+            pad_token_id=tokenizer.eos_token_id,
+            **sampling_params,
+            early_stopping=True,
+        )
     outputs = tokenizer.batch_decode(beam_output, skip_special_tokens=True)
     generation_time = time() - t0
     iterators = [iter(outputs)] * (len(outputs) // len(task_ids))
@@ -52,9 +52,8 @@ def run_hf_beam(out_file, sampling_params, llm_params):
 
 
 def run_experiment(sampling_params, llm_params, force_generation=False):
-    environ["CUDA_VISIBLE_DEVICES"] = "6"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
-
+    environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
             experiments = json.load(f)
@@ -81,8 +80,8 @@ def run_experiment(sampling_params, llm_params, force_generation=False):
 
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
     out_file = output_path / name
-    generation_time = run_hf_beam(out_file, sampling_params, llm_params)
-
+    num_gpus_used = len(environ["CUDA_VISIBLE_DEVICES"].split(","))
+    generation_time = run_hf_beam(out_file, sampling_params, llm_params) * num_gpus_used
     # write only when completed
     experiments[name] = dict(
         sampling_params=sampling_params,
@@ -98,23 +97,28 @@ if __name__ == "__main__":
     output_files = {}
 
     models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
-    for temperature in [0.6, 1.0]:
-        for width in [4]:
-            for model in models:
-                sampling_params = dict(temperature=temperature, max_new_tokens=10,
+    for model in models:
+        for width in [4, 8]:  # 16 does not work
+            environ["CUDA_VISIBLE_DEVICES"] = "6,7" if ((width > 4) and ("3B" in model)) else "6"
+
+            for temperature in [0.6, 1.0]:
+                sampling_params = dict(temperature=temperature, max_new_tokens=128,
                                        num_beams=width, num_return_sequences=width, no_repeat_ngram_size=3,
                                        )
                 # num_beam_groups, diversity_penalty
                 # repetition_penalty
 
-                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model))
-                output_files[out_file] = dict(temperature=temperature, model=model, beam_width=width, )
-                print("done", temperature, width)
+                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model), force_generation=False)
+                output_files[out_file] = dict(temperature=temperature, model=model, num_beams=width)
+                print("done", temperature, width, out_file, "\n")
     result_files = []
     for out_file in output_files:
         result_files.append(evaluate_and_save_results(out_file))
+    with open(experiments_file, "r") as f:
+        experiments = json.load(f)
 
     for (out_file, config), result_file in zip(output_files.items(), result_files):
-        pass_at_k = calc_pass_at_k_from_results(result_file, [4])
-        print(pass_at_k)
+        pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
+        time_taken = experiments[str(out_file)]["generation_time"]
+        print("pass@k", round(list(pass_at_k.values())[0], 3), ";", f"{round(time_taken)} H100-sec", config)
 # print time and pass at k so we can look at the plot and compare performance
