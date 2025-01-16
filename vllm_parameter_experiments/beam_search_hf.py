@@ -2,12 +2,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
 from time import time
-from human_eval import evaluation
 from os import environ
 import uuid
 import json
 import torch
-from vllm_parameter_experiments.inference import run_experiment, plots_path
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/vllm_parameter_experiments")
@@ -18,9 +16,6 @@ plots_path = experiment_path / "plots"
 plots_path.mkdir(exist_ok=True, parents=True)
 
 
-# The attention mask and the pad token id were not set. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
-# Setting `pad_token_id` to `eos_token_id`:None for open-end generation.
-# The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
 def run_hf_beam(out_file, sampling_params, llm_params):
     problems = read_problems()
     prompts = [problem["prompt"] for problem in problems.values()]
@@ -35,10 +30,11 @@ def run_hf_beam(out_file, sampling_params, llm_params):
     samples = []
     t0 = time()
 
-    input_ids = tokenizer(prompts, return_tensors="pt", padding=True).input_ids
+    tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
     # Generate text using beam search
     beam_output = model.generate(
-        input_ids.to("cuda"),
+        tokenized.input_ids.to("cuda"),
+        attention_mask=tokenized.attention_mask.to("cuda"),
         pad_token_id=tokenizer.eos_token_id,
         **sampling_params,
         early_stopping=True,
@@ -56,7 +52,7 @@ def run_hf_beam(out_file, sampling_params, llm_params):
 
 
 def run_experiment(sampling_params, llm_params, force_generation=False):
-    environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
+    environ["CUDA_VISIBLE_DEVICES"] = "6"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
 
     if experiments_file.exists():
@@ -111,7 +107,7 @@ if __name__ == "__main__":
                 # num_beam_groups, diversity_penalty
                 # repetition_penalty
 
-                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model), force_generation=True)
+                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model))
                 output_files[out_file] = dict(temperature=temperature, model=model, beam_width=width, )
                 print("done", temperature, width)
     result_files = []
