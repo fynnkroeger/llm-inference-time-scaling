@@ -6,6 +6,7 @@ from os import environ
 import uuid
 import json
 import torch
+from time import sleep
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/vllm_parameter_experiments")
@@ -96,9 +97,9 @@ def run_experiment(sampling_params, llm_params, force_generation=False):
 if __name__ == "__main__":
     output_files = {}
 
-    models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
+    models = ["meta-llama/Llama-3.2-1B"]
     for model in models:
-        for width in [4, 8]:  # 16 does not work
+        for width in [2, 4]:  # 16 does not work
             environ["CUDA_VISIBLE_DEVICES"] = "6,7" if ((width > 4) and ("3B" in model)) else "6"
 
             for temperature in [0.6, 1.0]:
@@ -113,7 +114,10 @@ if __name__ == "__main__":
                 print("done", temperature, width, out_file, "\n")
     result_files = []
     for out_file in output_files:
+        for line in open(Path(output_path, out_file)):
+            print(json.loads(line)["completion"])
         result_files.append(evaluate_and_save_results(out_file))
+    sleep(1)
     with open(experiments_file, "r") as f:
         experiments = json.load(f)
 
