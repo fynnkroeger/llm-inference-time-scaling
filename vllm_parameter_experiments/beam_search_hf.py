@@ -103,15 +103,22 @@ if __name__ == "__main__":
             environ["CUDA_VISIBLE_DEVICES"] = "6,7" if ((width > 4) and ("3B" in model)) else "6"
 
             for temperature in [0.6, 1.0]:
-                sampling_params = dict(temperature=temperature, max_new_tokens=128,
-                                       num_beams=width, num_return_sequences=width, no_repeat_ngram_size=3,
-                                       )
-                # num_beam_groups, diversity_penalty
-                # repetition_penalty
-
-                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model), force_generation=False)
-                output_files[out_file] = dict(temperature=temperature, model=model, num_beams=width)
-                print("done", temperature, width, out_file, "\n")
+                for repetition_penalty in [1.0, 1.1, 1.2]:
+                    for num_beam_groups in [1, 2]:
+                        for diversity_penalty in [1.0]:
+                            sampling_params = dict(temperature=temperature, max_new_tokens=128,
+                                                   num_beams=width, num_return_sequences=width,
+                                                   repetition_penalty=repetition_penalty, do_sample=True
+                                                   )
+                            if num_beam_groups > 1:
+                                sampling_params.update(num_beam_groups=num_beam_groups, do_sample=False,
+                                                       diversity_penalty=diversity_penalty)
+                                del sampling_params["temperature"]  # no sampling -> not needed
+                            # todo beam-search decoding if num_beams>1 and do_sample=False
+                            out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
+                                                      force_generation=False)
+                            output_files[out_file] = dict(temperature=temperature, model=model, num_beams=width)
+                            print("done", sampling_params)
     result_files = []
     for out_file in output_files:
         for line in open(Path(output_path, out_file)):
@@ -121,8 +128,28 @@ if __name__ == "__main__":
     with open(experiments_file, "r") as f:
         experiments = json.load(f)
 
+    import matplotlib.pyplot as plt
+
+    # Data collection for scatter plot
+    times = []  # To store time_taken
+    pass_ks = []  # To store pass@k values
+
     for (out_file, config), result_file in zip(output_files.items(), result_files):
         pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
         time_taken = experiments[str(out_file)]["generation_time"]
-        print("pass@k", round(list(pass_at_k.values())[0], 3), ";", f"{round(time_taken)} H100-sec", config)
-# print time and pass at k so we can look at the plot and compare performance
+        pass_k_value = round(list(pass_at_k.values())[0], 3)
+        times.append(time_taken)
+        pass_ks.append(pass_k_value)
+        print("pass@k", pass_k_value, ";", f"{round(time_taken)} H100-sec", config)
+
+    # Scatter plot
+    plt.scatter(times, pass_ks, label="beam search")
+    plt.xlabel("Time Taken (H100-sec)")
+    plt.ylabel("pass@k")
+    plt.title("Scatter Plot of pass@k vs Time Taken")
+    plt.ylim(0, 0.9)
+    plt.xlim(1, 100)
+    plt.plot([1.19, 8.30, 60.41], [0.118, 0.343, 0.547], "r+", label="repeated sampling")
+    plt.legend()
+    plt.xscale("log")
+    plt.savefig("out.png")  # print time and pass at k so we can look at the plot and compare performance
