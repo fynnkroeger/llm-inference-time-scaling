@@ -1,4 +1,6 @@
-vllm
-numpy
+git+https://github.com/uiuc-focal-lab/syncode.git
 matplotlib
 coolname
+numpy
+vllm
+seaborn

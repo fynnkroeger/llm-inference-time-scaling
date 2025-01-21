@@ -4,6 +4,6 @@ llm_params:
 sampling:
   temperature: 0.8
   top_p: 0.95
-  max_tokens: 2
-  n: 4 # number of samples
+  max_tokens: 128
+  n: 8 # number of samples
 evaluate: true

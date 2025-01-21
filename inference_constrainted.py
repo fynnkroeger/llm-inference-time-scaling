@@ -1,4 +1,5 @@
 import os
+import re
 from vllm import LLM, SamplingParams
 from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
@@ -15,7 +16,7 @@ import torch
 import warnings
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-BASE_PATH = "/raid/shared/llm-inference-scaling/experiments"
+BASE_PATH = "/raid/shared/llm-inference-scaling/experiments_tony"
 
 def get_prompts():
     problems = read_problems()
@@ -29,43 +30,24 @@ def run_generation(out_file, config):
     llm_params = config["llm_params"]
     prompts, task_ids = get_prompts()
     
-    llm = LLM(**llm_params)
-    t0 = time()
-    outputs = llm.generate(prompts, SamplingParams(**sampling_params))
-    elapsed_time = time() - t0
-    print(f"generation time: {elapsed_time:.3f}")
-
-    samples = []
-    for tid, output in zip(task_ids, outputs):
-        for out in output.outputs:
-            samples.append(dict(task_id=tid, completion=out.text))
-    write_jsonl(out_file, samples)
-    
-    return samples, elapsed_time
-
-def run_generation_constrained(out_file, config):
-    sampling_params = config["sampling"]
-    llm_params = config["llm_params"]
-    prompts, task_ids = get_prompts()
-    
     tokenizer = AutoTokenizer.from_pretrained(llm_params["model"])
-    llm = AutoModelForCausalLM.from_pretrained(llm_params["model"], torch_dtype=torch.bfloat16).eval().to("cuda")
-    syncode_logits_processor = SyncodeLogitsProcessor(grammar=Grammar("python"), tokenizer=tokenizer, parse_output_only=True)
+    syn_llm = Syncode(
+        model=llm_params["model"],
+        mode='grammar_strict',
+        grammar='python',
+        pad_token_id=tokenizer.eos_token_id,
+        do_sample=True,
+        num_return_sequences=sampling_params["n"],
+        temperature=sampling_params["temperature"],
+        top_p=sampling_params["top_p"],
+        max_new_tokens=sampling_params["max_tokens"],
+        parse_output_only=True)
     t0 = time()
     outputs = [] 
     for prompt in prompts:
-        syncode_logits_processor.reset(prompt)
-        inputs = tokenizer(prompt, return_tensors="pt").input_ids.to("cuda")
         out = []
         for i in range(0, sampling_params["n"]):
-            output = llm.generate(
-                inputs,
-                max_new_tokens=sampling_params["max_tokens"],
-                num_return_sequences=1,
-                pad_token_id=tokenizer.eos_token_id,
-                logits_processor=[syncode_logits_processor])
-            output_str = tokenizer.decode(output[0][len(inputs[0]):], skip_special_tokens=True)
-            out.append(output_str)
+            out.append(syn_llm.infer(prompt)[0])
             i += 1
         outputs.append(out)
     
@@ -101,7 +83,7 @@ def store_metadata(name, config, base_path=BASE_PATH):
     
 def experiment_setup(config):
     # Choose GPU
-    environ["CUDA_VISIBLE_DEVICES"] = "5"  # todo do this differently
+    environ["CUDA_VISIBLE_DEVICES"] = "4, 5"  # todo do this differently
     environ["TOKENIZERS_PARALLELISM"] = "true"
     experiment_name, out_path = create_experiment_dir()
     experiments, experiments_file = store_metadata(experiment_name, config)

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import random
 from pprint import pprint
+import numpy as np
 
 def read_jsonl(file_path: Path) -> list[dict]:
     """
@@ -98,6 +99,53 @@ def count_errors(entries: list[dict]):
                 error_counter[error_type] += 1
     return error_counter
 
+def get_result_frequencies(grouped_entries: list[dict], is_relative: bool = True):
+    """
+    Count successfull results, wrong answers (AssertioError) and other errors.
+    
+    Args:
+        entries (list[dict]): A list of dictionaries, each representing an entry with a "result" field.
+        
+    Returns:
+        The percentages of successfull results, wrong answers and errors of the entries.
+    """
+    
+    results_counts = {}
+    for category_id, entries in grouped_entries.items():
+        wrong_answer_count = 0
+        error_count = 0
+        for entry in entries:
+            result = entry.get("result", "")
+            if result.startswith("failed"):
+                error_type = result.split(":")[1].split("-")[0].strip()
+                if error_type != "AssertionError":
+                    error_count += 1
+                else:
+                    wrong_answer_count += 1
+        successful_results = len(entries) - wrong_answer_count - error_count
+        
+        if is_relative:
+            entry_count_inv = 1 / len(entries)
+            
+            results_counts[category_id] = [successful_results * entry_count_inv,
+                                        wrong_answer_count * entry_count_inv,
+                                        error_count * entry_count_inv]
+        else:
+            results_counts[category_id] = [successful_results, wrong_answer_count, error_count]
+            
+        
+    all_successful_results = [values[0] for values in results_counts.values()]
+    all_wrong_answers = [values[1] for values in results_counts.values()]
+    all_errors = [values[2] for values in results_counts.values()]
+
+    mean_successful = np.mean(all_successful_results)
+    mean_wrong_answers = np.mean(all_wrong_answers)
+    mean_errors = np.mean(all_errors)
+    
+    return mean_successful, mean_wrong_answers, mean_errors
+        
+    
+    
 def find_category_with_most_errors(error_counts: dict[str, Counter]) -> str:
     """
     Finds the category ID with the most total errors.
@@ -189,7 +237,7 @@ def create_donut_plot(experiment_path: Path, error_counter: Counter, category: s
         labels,
         title="Fehlerarten",
         loc="center left",
-        bbox_to_anchor=(0.925, 0.5),
+        bbox_to_anchor=(0.9, 0.5),
         fontsize=10,
     )
     plt.gca().add_artist(plt.Circle((0, 0), 0.5, color='white'))
@@ -263,7 +311,67 @@ def plot_error_bar_charts_per_category(experiment_path: Path, error_counts: dict
         output_file = experiment_path / f"{category_name}_error_bar_charts_per_{category_name}.png"
         plt.savefig(output_file, dpi=500)
         print(f"Bar charts per {category_name} plot saved at: {output_file}")
+
+def plot_stacked_bar_chart_from_dict(output_path: Path, data: dict[str, list[float]], column_labels: list[str], colors: list[str]):
+    """
+    Plot a stacked bar chart from a dictionary where keys are bar labels and values are lists of values.
+
+    Args:
+        output_path (Path): Path to save the generated chart. If None, the plot is shown.
+        data (dict[str, list[float]]): A dictionary where keys are bar labels and values are lists of values to stack in the bar.
+        column_labels list[str]: A list of names for the name of the different colors.
+        colors list[str]: A list of colors.
+    """
+    df = pd.DataFrame.from_dict(data, orient="index")
+    df.index.name = "models"
+    df.columns = column_labels
     
+    ax = df.plot(kind="bar", stacked=True, figsize=(12, 8), color=colors)
+    
+    plt.ylabel('Percentage', fontsize=14)
+    plt.xticks(rotation=0, fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.legend(title="Results", bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=12)
+    
+    for bar_group_idx, bar_group in enumerate(ax.patches):
+        bar_value = bar_group.get_height()
+        if bar_value > 0:  # Annotate only positive values
+            x = bar_group.get_x() + bar_group.get_width() / 2
+            y = bar_group.get_y() + bar_value / 2
+            ax.annotate(f'{bar_value:.2f}', (x, y), ha="center", va="center", fontsize=10, color="white")
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=300)
+        print(f"Stacked bar chart saved at: {output_path}")
+        
+def plot_results_across_models(base_path: str, experiment_names: str, labels: list[str], colors: list[str]):
+    results_count= {}
+    absolut_results_count = {}
+    with open(Path(base_path) / "experiments.json", "r") as file:
+        experiment_dict = json.load(file)
+    
+    for experiment_name in experiment_names:
+        experiment_path = Path(base_path) / experiment_name
+        jsonl_path = experiment_path / f"{experiment_name}.jsonl_results.jsonl"
+        
+        # Read entries from JSONL file
+        entries = read_jsonl(jsonl_path)
+                
+        sample_grouped_entries = group_by_sample(entries, num_samples)
+        
+        
+        s, wa, e = get_result_frequencies(sample_grouped_entries)
+        absolut_s, absolut_wa, absolut_e = get_result_frequencies(sample_grouped_entries, False)
+        
+        model_name = experiment_dict[experiment_name]["llm_params"]["model"].split("/")[1]
+        results_count[model_name] = [s, wa, e]
+        absolut_results_count[model_name] = [absolut_s, absolut_wa, absolut_e]
+    
+    plot_stacked_bar_chart_from_dict(Path(base_path) / "relative_model_comparision.png", results_count, labels, colors)
+    plot_stacked_bar_chart_from_dict(Path(base_path) / "absolute_model_comparision.png", absolut_results_count, labels, colors)
+    
+            
     
 def get_errors_per_category(base_path: str, experiment_name: str, num_samples: int, group_by_tasks=True, print_all=False):
     """
@@ -377,4 +485,9 @@ if __name__ == "__main__":
     group_by_tasks = False
     
     # get_errors_per_category(base_path, experiment_name, num_samples, group_by_tasks, print_all)
-    plot_statistics(base_path, experiment_name, num_samples)
+    # plot_statistics(base_path, experiment_name, num_samples)
+    
+    labels = ["Successful", "Wrong Answer", "Error"]
+    colors = ['mediumseagreen', 'indianred', 'darkorange']
+    experiments = ["hypersonic-micro-gaur-from-tartarus", "frisky-precise-pug-of-psychology", "spectacular-masked-ladybug-of-temperance"]
+    plot_results_across_models(base_path, experiments, labels, colors)

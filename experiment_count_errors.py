@@ -1,9 +1,11 @@
-from inference import experiment_setup, run_generation, evaluate_enhanced, store_results
+from inference import experiment_setup, run_generation, run_generation_constrained, evaluate_enhanced, store_results
 import yaml
 import os
 
 from evaluation.cluster_error import get_errors_per_category, plot_statistics
 from inference import BASE_PATH
+
+is_constrained = True
 
 config_path = "./config.yaml"
 with open(config_path, "r") as file:
@@ -13,7 +15,10 @@ experiments, experiments_file, experiment_name, out_path  = experiment_setup(con
 out_file = out_path / f"{experiment_name}.jsonl"
 
 # Choose your generation scipt here
-out_samples, creation_time = run_generation(out_file, config)
+if is_constrained:
+    out_samples, creation_time = run_generation_constrained(out_file, config)
+else: 
+    out_samples, creation_time = run_generation(out_file, config)
 experiments[experiment_name	]["runtime"] = creation_time
 
 # Only store results when run was successful
