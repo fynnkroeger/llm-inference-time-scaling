@@ -15,10 +15,11 @@ import coolname
 import json
 from mcts.token_ids_prefix_tree import PrefixTreeCumulativeProbabilities
 
-environ["CUDA_VISIBLE_DEVICES"] = "0"  # todo do this differently
+# environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
+environ["CUDA_VISIBLE_DEVICES"] = "3,4,5,6"  # todo do this differently
 environ["TOKENIZERS_PARALLELISM"] = "true"
 
-DEBUG = True
+DEBUG = False
 
 if DEBUG:
     experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test")
@@ -57,6 +58,7 @@ def run_prefix_experiment(config, llm):
     pure_gen_time = []
     other_time_per_gen = []
     num_problems = []
+    solved_task_ids_per_step = {}
     start_time = time.time()
     
     samples = []
@@ -65,9 +67,10 @@ def run_prefix_experiment(config, llm):
 
     for k in range(0, n, generation_step_size):
         print(f"Prefix sampling, current generation: {k}")
+        solved_task_ids_per_step[k] = solved_task_ids
         
         t_2 = time.time()
-        # task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
+        task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
         
         new_prompts = []
         gen_prefixes = []
@@ -90,7 +93,11 @@ def run_prefix_experiment(config, llm):
                 gen_index = [i for i in range(len(prompt_token_ids))]
                 break
             node = tree.prompt_root[prompt_token_id]
-            while True:
+            for j in range(max_tokens + 1):
+                if j == max_tokens:
+                    # The prefix has already a length of max_tokens, so we don't generate anything more.
+                    prefix_is_entire_solution = True
+                    break                    
                 if not node["children_token_ids"]:
                     # There are no saved child tokens, so the LLM has to generate from here
                     break
@@ -184,31 +191,32 @@ def run_prefix_experiment(config, llm):
         samples += judged_samples
         solved_task_ids = solved_task_ids | solved_problems
         
-    return samples, solved_task_ids, time_per_gen, other_time_per_gen, pure_gen_time, num_problems
+    return samples, solved_task_ids, time_per_gen, other_time_per_gen, pure_gen_time, num_problems, time.time() - start_time, solved_task_ids_per_step
     
 if __name__ == "__main__":
     config = dict(
         generation_step_size = 1,
-        temperature = 0.1,
+        temperature = 0.6,
         top_p = 0.95,
         max_tokens = 512,
-        n = 32,
-        model = "meta-llama/Llama-3.2-1B"
-        # model = "meta-llama/Llama-3.1-70B"
+        n = 256,
+        # model = "meta-llama/Llama-3.1-8B"
+        model = "meta-llama/Llama-3.1-70B"
     )
     exp_name = generate_unique_name(experiment_path)
     
-    llm = LLM(model=config["model"], tensor_parallel_size=1)
+    # llm = LLM(model=config["model"], tensor_parallel_size=1)
+    llm = LLM(model=config["model"], tensor_parallel_size=4)
     
     start_round_time = time.time()
-    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other, prefix_pure_gen_time, prefix_nums = run_prefix_experiment(config, llm)
+    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other, prefix_pure_gen_time, prefix_nums, prefix_internal_time, solved_task_ids_per_step = run_prefix_experiment(config, llm)
     prefix_time = time.time() - start_round_time
-    print(f"Prefix samplig: time: {prefix_time}, solved: {len(prefix_solved_task_ids)}")
+    print(f"Prefix samplig: time: {prefix_time} / {prefix_internal_time}, solved: {len(prefix_solved_task_ids)}")
     
     start_round_time = time.time()
-    base_samples, base_solved_task_ids, base_time_per_gen, base_other, base_pure_gen_time, base_nums = run_iterative_baseline(config, llm)
+    base_samples, base_solved_task_ids, base_time_per_gen, base_other, base_pure_gen_time, base_nums, base_internal_time = run_iterative_baseline(config, llm, solved_task_ids_per_step)
     base_time = time.time() - start_round_time
-    print(f"Baseline: time: {base_time}, solved: {len(base_solved_task_ids)}")
+    print(f"Baseline: time: {base_time} / {base_internal_time}, solved: {len(base_solved_task_ids)}")
     
     output_path = experiment_path / exp_name
     output_path.mkdir(parents=True)
@@ -240,5 +248,17 @@ if __name__ == "__main__":
     with open(output_path / "config.json", "w") as f:
         json.dump(config, f, indent=4)
         
+    times = {
+        "prefix_internal_time" : prefix_internal_time,
+        "prefix_time" : prefix_time,
+        "base_internal_time" : base_internal_time,
+        "base_time" : base_time
+    }
+    with open(output_path / "times.json", "w") as f:
+        json.dump(times, f, indent=4)
+        
+    print(f"Prefix samplig: time: {prefix_time} / {prefix_internal_time}, solved: {len(prefix_solved_task_ids)}")
+    print(f"Baseline: time: {base_time} / {base_internal_time}, solved: {len(base_solved_task_ids)}")
+
     print(f"exp_name: {exp_name}")
     

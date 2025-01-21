@@ -1,11 +1,10 @@
-
 from pathlib import Path
 
 import json
 import sys
 import matplotlib.pyplot as plt
 
-DEBUG = True
+DEBUG = False
 
 if DEBUG:
     experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test")
@@ -54,71 +53,82 @@ def plot_problems_solved(experiment_name):
         plt.savefig("plot_solutions_over_time.png")
     else:
         plt.savefig(ex_path / "plot_solutions_over_time.png")
-        
-# Function to plot the time per generation
-def plot(experiment_name, name):
-    # Load JSON data from files
+
+def exponential_smoothing(data, alpha):
+    smoothed = []
+    for i, value in enumerate(data):
+        if i == 0:
+            smoothed.append(value)  # Initialize with the first value
+        else:
+            smoothed.append(alpha * value + (1 - alpha) * smoothed[-1])
+    return smoothed
+
+def plot(experiment_name, name, alpha=0.1):
     ex_path = experiment_path / experiment_name
     file_path_prefix = ex_path / (name + "_prefix_sampling.json")
     file_path_baseline = ex_path / (name + "_baseline.json")
+
     with open(file_path_prefix, 'r') as file:
         data_prefix = json.load(file)
 
     with open(file_path_baseline, 'r') as file:
         data_baseline = json.load(file)
 
-    # Plot the data
+    smoothed_prefix = exponential_smoothing(data_prefix, alpha)
+    smoothed_baseline = exponential_smoothing(data_baseline, alpha)
+
     plt.figure(figsize=(10, 6))
-    plt.plot(data_prefix, marker='o', linestyle='-', color='b', label='Prefix Sampling')
-    plt.plot(data_baseline, marker='x', linestyle='--', color='r', label='Baseline')
+    plt.plot(smoothed_prefix, marker='o', linestyle='-', color='b', label='Prefix Sampling')
+    plt.plot(smoothed_baseline, marker='x', linestyle='--', color='r', label='Baseline')
     plt.xlabel('Generation')
     plt.ylabel(name)
     plt.title(name)
     plt.legend()
     plt.grid(True)
 
-    # Save the plot
     if DEBUG:
-        plt.savefig("plot_" + name + ".png")
+        plt.savefig(f"plot_{name}_{alpha}.png")
     else:
-        plt.savefig(ex_path / ("plot_" + name + ".png"))
-        
-# Function to plot the time per generation
-def plot_proportional(experiment_name, name):
-    # Load JSON data from files
+        plt.savefig(ex_path / f"plot_{name}_{alpha}.png")
+
+def plot_proportional(experiment_name, name, alpha=0.1):
     ex_path = experiment_path / experiment_name
     file_path_prefix = ex_path / (name + "_prefix_sampling.json")
     file_path_baseline = ex_path / (name + "_baseline.json")
     file_path_prefix_nums = ex_path / "num_problems_prefix_sampling.json"
     file_path_baseline_nums = ex_path / "num_problems_baseline.json"
-    
+
     with open(file_path_prefix, 'r') as file:
         data_prefix = json.load(file)
 
     with open(file_path_baseline, 'r') as file:
         data_baseline = json.load(file)
-        
+
     with open(file_path_prefix_nums, 'r') as file:
         nums_prefix = json.load(file)
 
     with open(file_path_baseline_nums, 'r') as file:
         nums_baseline = json.load(file)
 
-    # Plot the data
+    proportional_prefix = [data_prefix[i] / nums_prefix[i] for i in range(len(data_prefix))]
+    proportional_baseline = [data_baseline[i] / nums_baseline[i] for i in range(len(data_baseline))]
+
+    smoothed_prefix = exponential_smoothing(proportional_prefix, alpha)
+    smoothed_baseline = exponential_smoothing(proportional_baseline, alpha)
+
     plt.figure(figsize=(10, 6))
-    plt.plot([data_prefix[i] / nums_prefix[i] for i in range(len(data_prefix))], marker='o', linestyle='-', color='b', label='Prefix Sampling')
-    plt.plot([data_baseline[i] / nums_baseline[i] for i in range(len(data_baseline))], marker='x', linestyle='--', color='r', label='Baseline')
+    plt.plot(smoothed_prefix, marker='o', linestyle='-', color='b', label='Prefix Sampling')
+    plt.plot(smoothed_baseline, marker='x', linestyle='--', color='r', label='Baseline')
     plt.xlabel('Generation')
     plt.ylabel(name)
     plt.title(name)
     plt.legend()
     plt.grid(True)
 
-    # Save the plot
     if DEBUG:
-        plt.savefig("plot_" + name + "_proportional.png")
+        plt.savefig(f"plot_{name}_proportional_{alpha}.png")
     else:
-        plt.savefig(ex_path / ("plot_" + name + "_proportional.png"))
+        plt.savefig(ex_path / f"plot_{name}_proportional_{alpha}.png")
 
 # Entry point for the script
 if __name__ == "__main__":
@@ -126,9 +136,10 @@ if __name__ == "__main__":
         print("Usage: python script.py <experiment_name>")
     else:
         experiment_name = sys.argv[1]
+        alpha = 0.05
         plot_problems_solved(experiment_name)
-        plot(experiment_name, "other")
-        plot(experiment_name, "gen_time")
-        plot(experiment_name, "pure_gen_time")
-        plot_proportional(experiment_name, "gen_time")
-        plot_proportional(experiment_name, "pure_gen_time")
+        plot(experiment_name, "other", alpha)
+        plot(experiment_name, "gen_time", alpha)
+        plot(experiment_name, "pure_gen_time", alpha)
+        plot_proportional(experiment_name, "gen_time", alpha)
+        plot_proportional(experiment_name, "pure_gen_time", alpha)

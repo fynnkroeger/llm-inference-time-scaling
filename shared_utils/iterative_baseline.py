@@ -10,7 +10,7 @@ import math
 import time
 from mcts.token_ids_prefix_tree import BaseTokenIdsPrefixTree
 
-def run_iterative_baseline(config, llm):
+def run_iterative_baseline(config, llm, solved_task_ids_per_step):
     generation_step_size = config["generation_step_size"]
     temperature = config["temperature"]
     top_p = config["top_p"]
@@ -34,13 +34,13 @@ def run_iterative_baseline(config, llm):
     start_time = time.time()
     
     samples = []
-    solved_task_ids = {}
 
     for k in range(0, n, generation_step_size):
         print(f"Iterative baseline, current generation: {k}")
+        solved_task_ids = solved_task_ids_per_step[k]
         
         t_2 = time.time()
-        # task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
+        task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
         
         t_3 = time.time()
         raw_outputs = llm.generate(prompt_token_ids = prompt_token_ids, sampling_params = sampling_params)
@@ -76,6 +76,6 @@ def run_iterative_baseline(config, llm):
         num_problems.append(len(task_ids))
         
         samples += judged_samples
-        solved_task_ids = solved_task_ids | solved_problems
+        # solved_task_ids = solved_task_ids | solved_problems
         
-    return samples, solved_task_ids, time_per_gen, other_time_per_gen, pure_gen_time, num_problems
+    return samples, solved_task_ids, time_per_gen, other_time_per_gen, pure_gen_time, num_problems, time.time() - start_time
