@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
     models = ["meta-llama/Llama-3.2-1B"]
     for model in models:
-        for width in [2, 4]:  # 16 does not work
+        for width in [2, 4, 6]:  # 16 does not work
             environ["CUDA_VISIBLE_DEVICES"] = "7,8" if ((width > 4) and ("3B" in model)) else "7"
             print(environ["CUDA_VISIBLE_DEVICES"])
             for repetition_penalty in [1.0, 1.1, 1.2]:
