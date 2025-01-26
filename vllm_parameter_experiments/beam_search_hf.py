@@ -38,7 +38,6 @@ def run_hf_beam(out_file, sampling_params, llm_params):
             attention_mask=tokenized.attention_mask.to("cuda"),
             pad_token_id=tokenizer.eos_token_id,
             **sampling_params,
-            early_stopping=True,
         )
     outputs = tokenizer.batch_decode(beam_output, skip_special_tokens=True)
     generation_time = time() - t0
@@ -107,37 +106,40 @@ if __name__ == "__main__":
         for width in [2, 4, 6]:  # 16 does not work
             environ["CUDA_VISIBLE_DEVICES"] = "7,8" if ((width > 4) and ("3B" in model)) else "7"
             print(environ["CUDA_VISIBLE_DEVICES"])
-            for repetition_penalty in [1.0, 1.1, 1.2]:
-                sampling_params = dict(max_new_tokens=128,
-                                       num_beams=width, num_return_sequences=width,
-                                       repetition_penalty=repetition_penalty,
-                                       do_sample=False)
-                # normal beam search
-                out_file = experiment(sampling_params)
-                output_files[out_file] = sampling_params
-
-                # sampling beam search
-                for temperature in [0.6, 1.0]:
+            for early_stopping in [True, False]:
+                for repetition_penalty in [1.0, 1.1, 1.2]:
                     sampling_params = dict(max_new_tokens=128,
                                            num_beams=width, num_return_sequences=width,
-                                           repetition_penalty=repetition_penalty, temperature=temperature,
-                                           do_sample=True)
+                                           repetition_penalty=repetition_penalty,
+                                           do_sample=False, early_stopping=early_stopping)
+                    # normal beam search
                     out_file = experiment(sampling_params)
                     output_files[out_file] = sampling_params
-                # running experiment {'sampling_params': {'max_new_tokens': 128, 'num_beams': 4, 'num_return_sequences': 4, 'repetition_penalty': 1.2, 'temperature': 1.0, 'do_sample': False, 'num_beam_groups': 2, 'diversity_penalty': 1.0}, 'llm_params': {'model_name': 'meta-llama/Llama-3.2-1B'}, 'generation_time': 23.160406351089478}
-                # /home/fynn.kroeger/miniconda3/envs/inference-time-scaling/lib/python3.12/site-packages/transformers/generation/configuration_utils.py:590: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.6` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
-                #   warnings.warn(
-                # /home/fynn.kroeger/miniconda3/envs/inference-time-scaling/lib/python3.12/site-packages/transformers/generation/configuration_utils.py:595: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
 
-                # diverse beam search
-                for num_beam_groups in [2]:
-                    for diversity_penalty in [1.0]:
+                    # sampling beam search
+                    for temperature in [0.6, 1.0]:
                         sampling_params = dict(max_new_tokens=128,
                                                num_beams=width, num_return_sequences=width,
-                                               repetition_penalty=repetition_penalty, num_beam_groups=num_beam_groups,
-                                               diversity_penalty=diversity_penalty, do_sample=False)
+                                               repetition_penalty=repetition_penalty, temperature=temperature,
+                                               do_sample=True, early_stopping=early_stopping)
                         out_file = experiment(sampling_params)
                         output_files[out_file] = sampling_params
+                    # running experiment {'sampling_params': {'max_new_tokens': 128, 'num_beams': 4, 'num_return_sequences': 4, 'repetition_penalty': 1.2, 'temperature': 1.0, 'do_sample': False, 'num_beam_groups': 2, 'diversity_penalty': 1.0}, 'llm_params': {'model_name': 'meta-llama/Llama-3.2-1B'}, 'generation_time': 23.160406351089478}
+                    # /home/fynn.kroeger/miniconda3/envs/inference-time-scaling/lib/python3.12/site-packages/transformers/generation/configuration_utils.py:590: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.6` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
+                    #   warnings.warn(
+                    # /home/fynn.kroeger/miniconda3/envs/inference-time-scaling/lib/python3.12/site-packages/transformers/generation/configuration_utils.py:595: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+
+                    # diverse beam search
+                    for num_beam_groups in [2]:
+                        for diversity_penalty in [1.0]:
+                            sampling_params = dict(max_new_tokens=128,
+                                                   num_beams=width, num_return_sequences=width,
+                                                   repetition_penalty=repetition_penalty,
+                                                   num_beam_groups=num_beam_groups,
+                                                   diversity_penalty=diversity_penalty, do_sample=False,
+                                                   early_stopping=early_stopping)
+                            out_file = experiment(sampling_params)
+                            output_files[out_file] = sampling_params
 for k, v in output_files.items():
     print(k, v)
 result_files = []
