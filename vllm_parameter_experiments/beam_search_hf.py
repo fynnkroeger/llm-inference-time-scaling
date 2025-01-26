@@ -8,6 +8,7 @@ import json
 import torch
 from time import sleep
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
+from vllm_parameter_experiments.inference import run_experiment, plots_path
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/vllm_parameter_experiments")
 output_path = experiment_path / "outputs"
@@ -52,7 +53,7 @@ def run_hf(out_file, sampling_params, llm_params):
 
 
 # todo strategy pattern, merge this into inference
-def run_experiment(sampling_params, llm_params, force_generation=False):
+def run_experiment_hf(sampling_params, llm_params, force_generation=False):
     environ["TOKENIZERS_PARALLELISM"] = "true"
     environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     if experiments_file.exists():
@@ -137,7 +138,7 @@ for model in models:
         if sampling_params.get("num_beams", 1) > 4 and "3B" in model:
             environ["CUDA_VISIBLE_DEVICES"] = "7,8"
         print(environ["CUDA_VISIBLE_DEVICES"])
-        out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
+        out_file = run_experiment_hf(sampling_params, llm_params=dict(model_name=model),
                                   force_generation=False)
         output_files[out_file] = sampling_params
         print()
@@ -157,14 +158,17 @@ import matplotlib.pyplot as plt
 # Data collection for scatter plot
 times = []  # To store time_taken
 pass_ks = []  # To store pass@k values
+ks = []
 times_rep = []
 pass_ks_rep = []
+ks_rep = []
 
 for (out_file, config), result_file in zip(output_files.items(), result_files):
     if "num_beams" in config:
         pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
         time_taken = experiments[str(out_file)]["generation_time"]
         pass_k_value = list(pass_at_k.values())[0]
+        ks.append(config["num_beams"])
         times.append(time_taken)
         pass_ks.append(pass_k_value)
         print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
@@ -172,6 +176,7 @@ for (out_file, config), result_file in zip(output_files.items(), result_files):
         pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_return_sequences"]])
         time_taken = experiments[str(out_file)]["generation_time"]
         pass_k_value = list(pass_at_k.values())[0]
+        ks_rep.append(config["num_return_sequences"])
         times_rep.append(time_taken)
         pass_ks_rep.append(pass_k_value)
 
@@ -190,3 +195,9 @@ plt.xscale("log")
 plt.savefig("out.png")  # print time and pass at k so we can look at the plot and compare performance
 
 # todo plot with y=pass at k and x=k
+plt.figure()
+plt.plot(ks_rep, pass_ks_rep, label="HF repeated sampling")
+plt.scatter(ks, pass_ks, marker="+", label="HF beam search")
+plt.legend()
+plt.xscale("log")
+plt.savefig("out2.png")
