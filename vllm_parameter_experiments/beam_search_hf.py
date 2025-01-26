@@ -3,7 +3,6 @@ from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
 from time import time
 from os import environ
-import uuid
 import json
 import torch
 from time import sleep
@@ -56,7 +55,7 @@ if __name__ == "__main__":
     output_files = {}
     configs = []
 
-    for width in [2, 4, 6]:  # 16 does not work
+    for width in [6, 4, 2]:  # 16 does not work
         print(environ["CUDA_VISIBLE_DEVICES"])
         for early_stopping in [True, False]:
             for repetition_penalty in [1.0, 1.1, 1.2]:
@@ -83,12 +82,16 @@ if __name__ == "__main__":
                                             diversity_penalty=diversity_penalty, do_sample=False,
                                             early_stopping=early_stopping))
 
-# todo higher number with more gpus
-for n in [1, 2, 4, 6]:
+# todo preven parameter offloading
+# "Some parameters are on the meta device because they were offloaded to the cpu."
+
+for n in [1, 2, 4, 6, 8, 16]:
     configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
 
+devices = "4,5,6,7".split(",")
+
 # todo more models, try except cuda out of memory
-models = ["meta-llama/Llama-3.2-1B"]
+models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
 for model in models:
     for n in [1, 2, 4, 8, 16, 32, 64]:
         out_file = run_experiment(sampling_params=dict(temperature=0.7, n=n, max_tokens=128),
@@ -96,12 +99,16 @@ for model in models:
         output_files[out_file] = dict(temperature=temperature, n=n)
 
     for sampling_params in configs:
-        environ["CUDA_VISIBLE_DEVICES"] = "7"
-        if sampling_params.get("num_beams", 1) > 4 and "3B" in model:
-            environ["CUDA_VISIBLE_DEVICES"] = "7,8"
-        print(environ["CUDA_VISIBLE_DEVICES"])
-        out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
-                                  force_generation=False, generation_function=run_hf)
+        n = 1
+        while n <= len(devices):
+            environ["CUDA_VISIBLE_DEVICES"] = ",".join(devices[:n])
+            print(environ["CUDA_VISIBLE_DEVICES"])
+            try:
+                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
+                                          force_generation=False, generation_function=run_hf)
+                break
+            except RuntimeError:
+                n *= 2
         output_files[out_file] = sampling_params
         print()
 for k, v in output_files.items():
