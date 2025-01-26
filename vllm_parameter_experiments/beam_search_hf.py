@@ -133,6 +133,11 @@ for n in [1, 2, 4, 6]:
 # todo more models, try except cuda out of memory
 models = ["meta-llama/Llama-3.2-1B"]
 for model in models:
+    for n in [1, 2, 4, 8, 16, 32, 64]:
+        out_file = run_experiment(sampling_params=dict(temperature=0.7, n=n, max_tokens=128),
+                                  llm_params=dict(model=model, gpu_memory_utilization=0.75))
+        output_files[out_file] = dict(temperature=temperature, n=n)
+
     for sampling_params in configs:
         environ["CUDA_VISIBLE_DEVICES"] = "7"
         if sampling_params.get("num_beams", 1) > 4 and "3B" in model:
@@ -159,12 +164,24 @@ import matplotlib.pyplot as plt
 times = []  # To store time_taken
 pass_ks = []  # To store pass@k values
 ks = []
+
 times_rep = []
 pass_ks_rep = []
 ks_rep = []
 
+vllm_pass = []
+vllm_times = []
+vllm_ks = []
+
 for (out_file, config), result_file in zip(output_files.items(), result_files):
-    if "num_beams" in config:
+    if "n" in config:
+        pass_at_k = calc_pass_at_k_from_results(result_file, [config["n"]])
+        time_taken = experiments[str(out_file)]["generation_time"]
+        pass_k_value = list(pass_at_k.values())[0]
+        vllm_ks.append(config["n"])
+        vllm_times.append(time_taken)
+        vllm_pass.append(pass_k_value)
+    elif "num_beams" in config:
         pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
         time_taken = experiments[str(out_file)]["generation_time"]
         pass_k_value = list(pass_at_k.values())[0]
@@ -185,17 +202,14 @@ plt.scatter(times, pass_ks, marker="+", label="HF beam search")
 plt.xlabel("Time Taken (H100-sec)")
 plt.ylabel("pass@k")
 plt.title("Scatter Plot of pass@k vs Time Taken")
-plt.ylim(0, 0.9)
-plt.xlim(1, 100)
-# todo run vllm
-plt.plot([1.19, 8.30, 60.41], [0.118, 0.343, 0.547], "r+", label="vLLM repeated sampling")
+plt.plot(vllm_times, vllm_pass, label="vLLM repeated sampling")
 plt.plot(times_rep, pass_ks_rep, label="HF repeated sampling")
 plt.legend()
 plt.xscale("log")
 plt.savefig("out.png")  # print time and pass at k so we can look at the plot and compare performance
 
-# todo plot with y=pass at k and x=k
 plt.figure()
+plt.plot(vllm_ks, vllm_pass, label="vLLM repeated sampling")
 plt.plot(ks_rep, pass_ks_rep, label="HF repeated sampling")
 plt.scatter(ks, pass_ks, marker="+", label="HF beam search")
 plt.legend()
