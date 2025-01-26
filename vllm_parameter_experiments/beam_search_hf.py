@@ -93,53 +93,47 @@ def run_experiment(sampling_params, llm_params, force_generation=False):
     return out_file
 
 
-def experiment(sampling_params):
-    return run_experiment(sampling_params, llm_params=dict(model_name=model),
-                          force_generation=False)
-
-
 if __name__ == "__main__":
     output_files = {}
+    configs = []
 
-    models = ["meta-llama/Llama-3.2-1B"]
-    for model in models:
-        for width in [2, 4, 6]:  # 16 does not work
-            environ["CUDA_VISIBLE_DEVICES"] = "7,8" if ((width > 4) and ("3B" in model)) else "7"
-            print(environ["CUDA_VISIBLE_DEVICES"])
-            for early_stopping in [True, False]:
-                for repetition_penalty in [1.0, 1.1, 1.2]:
-                    sampling_params = dict(max_new_tokens=128,
-                                           num_beams=width, num_return_sequences=width,
-                                           repetition_penalty=repetition_penalty,
-                                           do_sample=False, early_stopping=early_stopping)
-                    # normal beam search
-                    out_file = experiment(sampling_params)
-                    output_files[out_file] = sampling_params
+    for width in [2, 4, 6]:  # 16 does not work
+        print(environ["CUDA_VISIBLE_DEVICES"])
+        for early_stopping in [True, False]:
+            for repetition_penalty in [1.0, 1.1, 1.2]:
+                # normal beam search
+                configs.append(dict(max_new_tokens=128,
+                                    num_beams=width, num_return_sequences=width,
+                                    repetition_penalty=repetition_penalty,
+                                    do_sample=False, early_stopping=early_stopping))
 
-                    # sampling beam search
-                    for temperature in [0.6, 1.0]:
-                        sampling_params = dict(max_new_tokens=128,
-                                               num_beams=width, num_return_sequences=width,
-                                               repetition_penalty=repetition_penalty, temperature=temperature,
-                                               do_sample=True, early_stopping=early_stopping)
-                        out_file = experiment(sampling_params)
-                        output_files[out_file] = sampling_params
-                    # running experiment {'sampling_params': {'max_new_tokens': 128, 'num_beams': 4, 'num_return_sequences': 4, 'repetition_penalty': 1.2, 'temperature': 1.0, 'do_sample': False, 'num_beam_groups': 2, 'diversity_penalty': 1.0}, 'llm_params': {'model_name': 'meta-llama/Llama-3.2-1B'}, 'generation_time': 23.160406351089478}
-                    # /home/fynn.kroeger/miniconda3/envs/inference-time-scaling/lib/python3.12/site-packages/transformers/generation/configuration_utils.py:590: UserWarning: `do_sample` is set to `False`. However, `temperature` is set to `0.6` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `temperature`.
-                    #   warnings.warn(
-                    # /home/fynn.kroeger/miniconda3/envs/inference-time-scaling/lib/python3.12/site-packages/transformers/generation/configuration_utils.py:595: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+                # sampling beam search
+                for temperature in [0.6, 1.0]:
+                    configs.append(dict(max_new_tokens=128,
+                                        num_beams=width, num_return_sequences=width,
+                                        repetition_penalty=repetition_penalty, temperature=temperature,
+                                        do_sample=True, early_stopping=early_stopping))
 
-                    # diverse beam search
-                    for num_beam_groups in [2]:
-                        for diversity_penalty in [1.0]:
-                            sampling_params = dict(max_new_tokens=128,
-                                                   num_beams=width, num_return_sequences=width,
-                                                   repetition_penalty=repetition_penalty,
-                                                   num_beam_groups=num_beam_groups,
-                                                   diversity_penalty=diversity_penalty, do_sample=False,
-                                                   early_stopping=early_stopping)
-                            out_file = experiment(sampling_params)
-                            output_files[out_file] = sampling_params
+                # diverse beam search
+                for num_beam_groups in [2]:
+                    for diversity_penalty in [1.0]:
+                        configs.append(dict(max_new_tokens=128,
+                                            num_beams=width, num_return_sequences=width,
+                                            repetition_penalty=repetition_penalty,
+                                            num_beam_groups=num_beam_groups,
+                                            diversity_penalty=diversity_penalty, do_sample=False,
+                                            early_stopping=early_stopping))
+
+models = ["meta-llama/Llama-3.2-1B"]
+for model in models:
+    for sampling_params in configs:
+        n_beams = sampling_params["num_beams"]
+        environ["CUDA_VISIBLE_DEVICES"] = "7,8" if ((n_beams > 4) and ("3B" in model)) else "7"
+
+        out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
+                                  force_generation=False)
+        output_files[out_file] = sampling_params
+
 for k, v in output_files.items():
     print(k, v)
 result_files = []
@@ -166,7 +160,7 @@ for (out_file, config), result_file in zip(output_files.items(), result_files):
     print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
 
 # Scatter plot
-plt.scatter(times, pass_ks, label="beam search")
+plt.scatter(times, pass_ks, marker="+", label="beam search")
 plt.xlabel("Time Taken (H100-sec)")
 plt.ylabel("pass@k")
 plt.title("Scatter Plot of pass@k vs Time Taken")
