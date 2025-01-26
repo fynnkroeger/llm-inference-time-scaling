@@ -17,7 +17,7 @@ plots_path = experiment_path / "plots"
 plots_path.mkdir(exist_ok=True, parents=True)
 
 
-def run_hf_beam(out_file, sampling_params, llm_params):
+def run_hf(out_file, sampling_params, llm_params):
     problems = read_problems()
     prompts = [problem["prompt"] for problem in problems.values()]
     task_ids = list(problems.keys())
@@ -81,7 +81,7 @@ def run_experiment(sampling_params, llm_params, force_generation=False):
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
     out_file = output_path / name
     num_gpus_used = len(environ["CUDA_VISIBLE_DEVICES"].split(","))
-    generation_time = run_hf_beam(out_file, sampling_params, llm_params) * num_gpus_used
+    generation_time = run_hf(out_file, sampling_params, llm_params) * num_gpus_used
     # write only when completed
     experiments[name] = dict(
         sampling_params=sampling_params,
@@ -115,7 +115,7 @@ if __name__ == "__main__":
                                         do_sample=True, early_stopping=early_stopping))
 
                 # diverse beam search
-                for num_beam_groups in [2]:
+                for num_beam_groups in [2, width]:
                     for diversity_penalty in [1.0]:
                         configs.append(dict(max_new_tokens=128,
                                             num_beams=width, num_return_sequences=width,
@@ -124,6 +124,7 @@ if __name__ == "__main__":
                                             diversity_penalty=diversity_penalty, do_sample=False,
                                             early_stopping=early_stopping))
 
+# todo higher number with more gpus
 for n in [1, 2, 4, 6]:
     configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
 
@@ -179,6 +180,7 @@ plt.ylabel("pass@k")
 plt.title("Scatter Plot of pass@k vs Time Taken")
 plt.ylim(0, 0.9)
 plt.xlim(1, 100)
+# todo run vllm
 plt.plot([1.19, 8.30, 60.41], [0.118, 0.343, 0.547], "r+", label="vLLM repeated sampling")
 plt.plot(times_rep, pass_ks_rep, label="HF repeated sampling")
 plt.legend()
