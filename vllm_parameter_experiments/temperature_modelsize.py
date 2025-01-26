@@ -14,7 +14,7 @@ for temperature in [0.4, 0.6, 0.7, 0.8, 1, 1.2]:
     for model in models:
         sampling_params = dict(temperature=temperature, n=256, max_tokens=128)
         llm_params = dict(model=model, gpu_memory_utilization=0.75)
-        out_file = run_experiment(sampling_params, llm_params, evaluate=False)
+        out_file = run_experiment(sampling_params, llm_params)
         output_files[out_file] = dict(temperature=temperature, model=model)
 
 # run evals

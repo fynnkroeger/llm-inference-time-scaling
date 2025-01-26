@@ -18,7 +18,7 @@ for model, t in optimal:
     for n in n_values:
         sampling_params = dict(temperature=t, n=n, max_tokens=128)
         llm_params = dict(model=model, gpu_memory_utilization=0.75)
-        out_file = run_experiment(sampling_params, llm_params, evaluate=False)
+        out_file = run_experiment(sampling_params, llm_params)
         output_files[out_file] = dict(temperature=t, model=model, n=n)
 
 result_files = []

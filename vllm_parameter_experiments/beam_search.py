@@ -9,7 +9,7 @@ for temperature in [0.6]:
         for model in models:
             sampling_params = dict(temperature=temperature, beam_width=width, max_tokens=128)
             llm_params = dict(model=model, gpu_memory_utilization=0.75)
-            out_file = run_experiment(sampling_params, llm_params, evaluate=False, beam_search=True)
+            out_file = run_experiment(sampling_params, llm_params, beam_search=True)
             output_files[out_file] = dict(temperature=temperature, model=model, beam_width=width)
             print("done", temperature, width)
 

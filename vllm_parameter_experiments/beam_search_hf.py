@@ -52,49 +52,6 @@ def run_hf(out_file, sampling_params, llm_params):
     return generation_time
 
 
-# todo strategy pattern, merge this into inference
-def run_experiment_hf(sampling_params, llm_params, force_generation=False):
-    environ["TOKENIZERS_PARALLELISM"] = "true"
-    environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-    if experiments_file.exists():
-        with open(experiments_file, "r") as f:
-            experiments = json.load(f)
-        to_delete = []
-        for name in experiments:
-            if not (output_path / name).exists():
-                to_delete.append(name)
-        if to_delete:
-            for name in to_delete:
-                print(f"deleting {name} as file not found")
-                del experiments[name]
-            with open(experiments_file, "w") as f:
-                json.dump(experiments, f, indent=4)
-    else:
-        experiments = {}
-    if not force_generation:  # delete the file?
-        for file_name, config in experiments.items():
-            if (
-                    config["sampling_params"] == sampling_params
-                    and config["llm_params"] == llm_params
-            ):
-                print("experiment already performed, skipping", config)
-                return file_name
-    print("running experiment", config)
-    name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
-    out_file = output_path / name
-    num_gpus_used = len(environ["CUDA_VISIBLE_DEVICES"].split(","))
-    generation_time = run_hf(out_file, sampling_params, llm_params) * num_gpus_used
-    # write only when completed
-    experiments[name] = dict(
-        sampling_params=sampling_params,
-        llm_params=llm_params,
-        generation_time=generation_time,
-    )
-    with open(experiments_file, "w") as f:
-        json.dump(experiments, f, indent=4)
-    return out_file
-
-
 if __name__ == "__main__":
     output_files = {}
     configs = []
@@ -143,8 +100,8 @@ for model in models:
         if sampling_params.get("num_beams", 1) > 4 and "3B" in model:
             environ["CUDA_VISIBLE_DEVICES"] = "7,8"
         print(environ["CUDA_VISIBLE_DEVICES"])
-        out_file = run_experiment_hf(sampling_params, llm_params=dict(model_name=model),
-                                  force_generation=False)
+        out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
+                                  force_generation=False, generation_function=run_hf)
         output_files[out_file] = sampling_params
         print()
 for k, v in output_files.items():

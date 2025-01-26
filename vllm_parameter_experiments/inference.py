@@ -16,7 +16,8 @@ plots_path = experiment_path / "plots"
 plots_path.mkdir(exist_ok=True, parents=True)
 
 
-def run_generation(out_file, sampling_params, llm_params, beam_search=False):
+# todo beam search as separate function
+def run_generation_vllm(out_file, sampling_params, llm_params, beam_search=False):
     problems = read_problems()
     prompts = [problem["prompt"] for problem in problems.values()]
     task_ids = list(problems.keys())
@@ -41,10 +42,10 @@ def run_generation(out_file, sampling_params, llm_params, beam_search=False):
     return generation_time
 
 
-def run_experiment(sampling_params, llm_params, evaluate=False, beam_search=False):
-    environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
+def run_experiment(sampling_params, llm_params, beam_search=False, force_generation=False,
+                   generation_function=run_generation_vllm):
     environ["TOKENIZERS_PARALLELISM"] = "true"
-
+    environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     if experiments_file.exists():
         with open(experiments_file, "r") as f:
             experiments = json.load(f)
@@ -60,28 +61,29 @@ def run_experiment(sampling_params, llm_params, evaluate=False, beam_search=Fals
                 json.dump(experiments, f, indent=4)
     else:
         experiments = {}
-    for file_name, config in experiments.items():
-        if (
-                config["sampling_params"] == sampling_params
-                and config["llm_params"] == llm_params
-        ):
-            print("experiment already performed, skipping")
-            return file_name
-
+    if not force_generation:
+        for file_name, config in experiments.items():
+            if (
+                    config["sampling_params"] == sampling_params
+                    and config["llm_params"] == llm_params
+            ):
+                print("experiment already performed, skipping")
+                return file_name
+    print("running experiment", config)
     name = f"{uuid.uuid4()}.jsonl"  # choose out file name randomly
     out_file = output_path / name
-    generation_time = run_generation(out_file, sampling_params, llm_params, beam_search)
+    num_gpus_used = len(environ["CUDA_VISIBLE_DEVICES"].split(","))
+    raw_time = generation_function(out_file, sampling_params, llm_params, beam_search=beam_search)
 
     # write only when completed
     experiments[name] = dict(
         sampling_params=sampling_params,
         llm_params=llm_params,
-        generation_time=generation_time,
+        generation_time=raw_time * num_gpus_used,
+        num_gpus=num_gpus_used
     )
     with open(experiments_file, "w") as f:
         json.dump(experiments, f, indent=4)
-    if evaluate:
-        evaluation.evaluate_functional_correctness(str(out_file), k=[1, 4, 16, 64, 256])
     return out_file
 
 
