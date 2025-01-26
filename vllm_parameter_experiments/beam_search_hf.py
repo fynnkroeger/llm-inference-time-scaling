@@ -51,6 +51,7 @@ def run_hf(out_file, sampling_params, llm_params):
     return generation_time
 
 
+# todo strategy pattern, merge this into inference
 def run_experiment(sampling_params, llm_params, force_generation=False):
     environ["TOKENIZERS_PARALLELISM"] = "true"
     environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -128,6 +129,7 @@ if __name__ == "__main__":
 for n in [1, 2, 4, 6]:
     configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
 
+# todo more models, try except cuda out of memory
 models = ["meta-llama/Llama-3.2-1B"]
 for model in models:
     for sampling_params in configs:
@@ -186,3 +188,5 @@ plt.plot(times_rep, pass_ks_rep, label="HF repeated sampling")
 plt.legend()
 plt.xscale("log")
 plt.savefig("out.png")  # print time and pass at k so we can look at the plot and compare performance
+
+# todo plot with y=pass at k and x=k
