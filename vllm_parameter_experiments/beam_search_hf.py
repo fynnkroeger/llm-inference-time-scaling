@@ -124,16 +124,20 @@ if __name__ == "__main__":
                                             diversity_penalty=diversity_penalty, do_sample=False,
                                             early_stopping=early_stopping))
 
+for n in [1, 2, 4, 6]:
+    configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
+
 models = ["meta-llama/Llama-3.2-1B"]
 for model in models:
     for sampling_params in configs:
-        n_beams = sampling_params["num_beams"]
-        environ["CUDA_VISIBLE_DEVICES"] = "7,8" if ((n_beams > 4) and ("3B" in model)) else "7"
-
+        environ["CUDA_VISIBLE_DEVICES"] = "7"
+        if sampling_params.get("num_beams", 1) > 4 and "3B" in model:
+            environ["CUDA_VISIBLE_DEVICES"] = "7,8"
+        print(environ["CUDA_VISIBLE_DEVICES"])
         out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
                                   force_generation=False)
         output_files[out_file] = sampling_params
-
+        print()
 for k, v in output_files.items():
     print(k, v)
 result_files = []
@@ -150,23 +154,33 @@ import matplotlib.pyplot as plt
 # Data collection for scatter plot
 times = []  # To store time_taken
 pass_ks = []  # To store pass@k values
+times_rep = []
+pass_ks_rep = []
 
 for (out_file, config), result_file in zip(output_files.items(), result_files):
-    pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
-    time_taken = experiments[str(out_file)]["generation_time"]
-    pass_k_value = list(pass_at_k.values())[0]
-    times.append(time_taken)
-    pass_ks.append(pass_k_value)
-    print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
+    if "num_beams" in config:
+        pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
+        time_taken = experiments[str(out_file)]["generation_time"]
+        pass_k_value = list(pass_at_k.values())[0]
+        times.append(time_taken)
+        pass_ks.append(pass_k_value)
+        print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
+    else:
+        pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_return_sequences"]])
+        time_taken = experiments[str(out_file)]["generation_time"]
+        pass_k_value = list(pass_at_k.values())[0]
+        times_rep.append(time_taken)
+        pass_ks_rep.append(pass_k_value)
 
 # Scatter plot
-plt.scatter(times, pass_ks, marker="+", label="beam search")
+plt.scatter(times, pass_ks, marker="+", label="HF beam search")
 plt.xlabel("Time Taken (H100-sec)")
 plt.ylabel("pass@k")
 plt.title("Scatter Plot of pass@k vs Time Taken")
 plt.ylim(0, 0.9)
 plt.xlim(1, 100)
-plt.plot([1.19, 8.30, 60.41], [0.118, 0.343, 0.547], "r+", label="repeated sampling")
+plt.plot([1.19, 8.30, 60.41], [0.118, 0.343, 0.547], "r+", label="vLLM repeated sampling")
+plt.plot(times_rep, pass_ks_rep, label="HF repeated sampling")
 plt.legend()
 plt.xscale("log")
 plt.savefig("out.png")  # print time and pass at k so we can look at the plot and compare performance
