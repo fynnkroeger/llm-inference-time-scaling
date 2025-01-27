@@ -9,6 +9,7 @@ from time import sleep
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
 from vllm_parameter_experiments.inference import run_experiment, plots_path
 import matplotlib.pyplot as plt
+from collections import defaultdict
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/vllm_parameter_experiments")
 output_path = experiment_path / "outputs"
@@ -58,7 +59,7 @@ configs = []
 for width in [6, 4, 2]:  # 16 does not work
     print(environ["CUDA_VISIBLE_DEVICES"])
     for early_stopping in [True, False]:
-        for repetition_penalty in [1.0, 1.1, 1.2]:
+        for repetition_penalty in [1.0]:  # [1.0, 1.1, 1.2]:
             # normal beam search
             configs.append(dict(max_new_tokens=128,
                                 num_beams=width, num_return_sequences=width,
@@ -73,8 +74,9 @@ for width in [6, 4, 2]:  # 16 does not work
                                     do_sample=True, early_stopping=early_stopping))
 
             # diverse beam search
-            for num_beam_groups in [2, width]:
-                for diversity_penalty in [1.0]:
+            divisors = [n for n in range(2, width + 1) if width % n == 0]
+            for num_beam_groups in divisors:
+                for diversity_penalty in [0.5, 1.0, 1.5]:
                     configs.append(dict(max_new_tokens=128,
                                         num_beams=width, num_return_sequences=width,
                                         repetition_penalty=repetition_penalty,
@@ -137,6 +139,8 @@ for model in models:
     vllm_times = []
     vllm_ks = []
 
+    best_scores = defaultdict(int)
+    best_configs = defaultdict(list)
     for (out_file, config), result_file in zip(output_files.items(), result_files):
         if config["model_name"] != model:
             continue
@@ -148,13 +152,18 @@ for model in models:
             vllm_times.append(time_taken)
             vllm_pass.append(pass_k_value)
         elif "num_beams" in config:
-            pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_beams"]])
+            k = config["num_beams"]
+            pass_at_k = calc_pass_at_k_from_results(result_file, [k])
             time_taken = experiments[str(out_file)]["generation_time"]
             pass_k_value = list(pass_at_k.values())[0]
-            ks.append(config["num_beams"])
+            ks.append(k)
             times.append(time_taken)
             pass_ks.append(pass_k_value)
-            print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
+            # print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
+
+            if best_scores[k] <= pass_k_value:
+                best_scores[k] = pass_k_value
+                best_configs[k].append(config)
         else:
             pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_return_sequences"]])
             time_taken = experiments[str(out_file)]["generation_time"]
@@ -162,6 +171,13 @@ for model in models:
             ks_rep.append(config["num_return_sequences"])
             times_rep.append(time_taken)
             pass_ks_rep.append(pass_k_value)
+
+    print(model)
+    print(best_scores)
+    for v in best_configs.values():
+        for c in v:
+            print(c)
+        print()
 
     model_name = model.split("/")[-1]
     # Scatter plot
