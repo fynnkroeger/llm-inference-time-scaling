@@ -15,16 +15,16 @@ import coolname
 import json
 from mcts.token_ids_prefix_tree import PrefixTreeCumulativeProbabilities
 
-# environ["CUDA_VISIBLE_DEVICES"] = "3"  # todo do this differently
-environ["CUDA_VISIBLE_DEVICES"] = "3,4,5,6"  # todo do this differently
+# environ["CUDA_VISIBLE_DEVICES"] = "6"  # todo do this differently
+environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"  # todo do this differently
 environ["TOKENIZERS_PARALLELISM"] = "true"
 
 DEBUG = False
 
 if DEBUG:
-    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test")
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test/multi_2")
 else:
-    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments/multi_2")
 
 def save_to_tree(judged_samples, tree):
     for judged_output in judged_samples:
@@ -131,7 +131,8 @@ def run_prefix_experiment(config, llm):
         
         # TODO: max_tokens should be different, because the prompt now contains part of the output
         t_3 = time.time()
-        raw_outputs = llm.generate(prompt_token_ids = new_prompts, sampling_params = sampling_params)
+        if new_prompts:
+            raw_outputs = llm.generate(prompt_token_ids = new_prompts, sampling_params = sampling_params)
         pure_gen_time.append(time.time() - t_3)
         
         # print(len(gen_task_ids), len(gen_prompt_token_ids), len(raw_outputs), len(gen_prefixes), len(gen_index))
@@ -194,71 +195,75 @@ def run_prefix_experiment(config, llm):
     return samples, solved_task_ids, time_per_gen, other_time_per_gen, pure_gen_time, num_problems, time.time() - start_time, solved_task_ids_per_step
     
 if __name__ == "__main__":
-    config = dict(
-        generation_step_size = 1,
-        temperature = 0.6,
-        top_p = 0.95,
-        max_tokens = 512,
-        n = 256,
-        # model = "meta-llama/Llama-3.1-8B"
-        model = "meta-llama/Llama-3.1-70B"
-    )
-    exp_name = generate_unique_name(experiment_path)
     
-    # llm = LLM(model=config["model"], tensor_parallel_size=1)
-    llm = LLM(model=config["model"], tensor_parallel_size=4)
-    
-    start_round_time = time.time()
-    prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other, prefix_pure_gen_time, prefix_nums, prefix_internal_time, solved_task_ids_per_step = run_prefix_experiment(config, llm)
-    prefix_time = time.time() - start_round_time
-    print(f"Prefix samplig: time: {prefix_time} / {prefix_internal_time}, solved: {len(prefix_solved_task_ids)}")
-    
-    start_round_time = time.time()
-    base_samples, base_solved_task_ids, base_time_per_gen, base_other, base_pure_gen_time, base_nums, base_internal_time = run_iterative_baseline(config, llm, solved_task_ids_per_step)
-    base_time = time.time() - start_round_time
-    print(f"Baseline: time: {base_time} / {base_internal_time}, solved: {len(base_solved_task_ids)}")
-    
-    output_path = experiment_path / exp_name
-    output_path.mkdir(parents=True)
-    
-    write_jsonl(output_path / f"samples_prefix_sampling.jsonl", prefix_samples)
-    with open(output_path / "times_prefix_sampling.json", "w") as f:
-        json.dump(prefix_solved_task_ids, f, indent=4)
-    with open(output_path / "gen_time_prefix_sampling.json", "w") as f:
-        json.dump(prefix_time_per_gen, f, indent=4)
-    with open(output_path / "other_prefix_sampling.json", "w") as f:
-        json.dump(prefix_other, f, indent=4)
-    with open(output_path / "pure_gen_time_prefix_sampling.json", "w") as f:
-        json.dump(prefix_pure_gen_time, f, indent=4)
-    with open(output_path / "num_problems_prefix_sampling.json", "w") as f:
-        json.dump(prefix_nums, f, indent=4)
+    # m = "meta-llama/Llama-3.1-8B"
+    m = "meta-llama/Llama-3.1-70B"
+    # llm = LLM(model=m, tensor_parallel_size=1)
+    llm = LLM(model=m, tensor_parallel_size=4)
         
-    write_jsonl(output_path / f"samples_baseline.jsonl", base_samples)
-    with open(output_path / "times_baseline.json", "w") as f:
-        json.dump(base_solved_task_ids, f, indent=4)
-    with open(output_path / "gen_time_baseline.json", "w") as f:
-        json.dump(base_time_per_gen, f, indent=4)
-    with open(output_path / "other_baseline.json", "w") as f:
-        json.dump(base_other, f, indent=4)
-    with open(output_path / "pure_gen_time_baseline.json", "w") as f:
-        json.dump(base_pure_gen_time, f, indent=4)
-    with open(output_path / "num_problems_baseline.json", "w") as f:
-        json.dump(base_nums, f, indent=4)
+    for t in range(2, 12, 2):
+        t /= 10
+        config = dict(
+            generation_step_size = 1,
+            temperature = t,
+            top_p = 0.95,
+            max_tokens = 512,
+            n = 512,
+            model = m
+        )
+        exp_name = generate_unique_name(experiment_path)
         
-    with open(output_path / "config.json", "w") as f:
-        json.dump(config, f, indent=4)
+        start_round_time = time.time()
+        prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other, prefix_pure_gen_time, prefix_nums, prefix_internal_time, solved_task_ids_per_step = run_prefix_experiment(config, llm)
+        prefix_time = time.time() - start_round_time
+        print(f"Prefix samplig: time: {prefix_time} / {prefix_internal_time}, solved: {len(prefix_solved_task_ids)}")
         
-    times = {
-        "prefix_internal_time" : prefix_internal_time,
-        "prefix_time" : prefix_time,
-        "base_internal_time" : base_internal_time,
-        "base_time" : base_time
-    }
-    with open(output_path / "times.json", "w") as f:
-        json.dump(times, f, indent=4)
+        start_round_time = time.time()
+        base_samples, base_solved_task_ids, base_time_per_gen, base_other, base_pure_gen_time, base_nums, base_internal_time = run_iterative_baseline(config, llm, solved_task_ids_per_step)
+        base_time = time.time() - start_round_time
+        print(f"Baseline: time: {base_time} / {base_internal_time}, solved: {len(base_solved_task_ids)}")
         
-    print(f"Prefix samplig: time: {prefix_time} / {prefix_internal_time}, solved: {len(prefix_solved_task_ids)}")
-    print(f"Baseline: time: {base_time} / {base_internal_time}, solved: {len(base_solved_task_ids)}")
+        output_path = experiment_path / exp_name
+        output_path.mkdir(parents=True)
+        
+        write_jsonl(output_path / f"samples_prefix_sampling.jsonl", prefix_samples)
+        with open(output_path / "times_prefix_sampling.json", "w") as f:
+            json.dump(prefix_solved_task_ids, f, indent=4)
+        with open(output_path / "gen_time_prefix_sampling.json", "w") as f:
+            json.dump(prefix_time_per_gen, f, indent=4)
+        with open(output_path / "other_prefix_sampling.json", "w") as f:
+            json.dump(prefix_other, f, indent=4)
+        with open(output_path / "pure_gen_time_prefix_sampling.json", "w") as f:
+            json.dump(prefix_pure_gen_time, f, indent=4)
+        with open(output_path / "num_problems_prefix_sampling.json", "w") as f:
+            json.dump(prefix_nums, f, indent=4)
+            
+        write_jsonl(output_path / f"samples_baseline.jsonl", base_samples)
+        with open(output_path / "times_baseline.json", "w") as f:
+            json.dump(base_solved_task_ids, f, indent=4)
+        with open(output_path / "gen_time_baseline.json", "w") as f:
+            json.dump(base_time_per_gen, f, indent=4)
+        with open(output_path / "other_baseline.json", "w") as f:
+            json.dump(base_other, f, indent=4)
+        with open(output_path / "pure_gen_time_baseline.json", "w") as f:
+            json.dump(base_pure_gen_time, f, indent=4)
+        with open(output_path / "num_problems_baseline.json", "w") as f:
+            json.dump(base_nums, f, indent=4)
+            
+        with open(output_path / "config.json", "w") as f:
+            json.dump(config, f, indent=4)
+            
+        times = {
+            "prefix_internal_time" : prefix_internal_time,
+            "prefix_time" : prefix_time,
+            "base_internal_time" : base_internal_time,
+            "base_time" : base_time
+        }
+        with open(output_path / "times.json", "w") as f:
+            json.dump(times, f, indent=4)
+            
+        print(f"Prefix samplig: time: {prefix_time} / {prefix_internal_time}, solved: {len(prefix_solved_task_ids)}")
+        print(f"Baseline: time: {base_time} / {base_internal_time}, solved: {len(base_solved_task_ids)}")
 
-    print(f"exp_name: {exp_name}")
-    
+        print(f"exp_name: {exp_name}")
+        

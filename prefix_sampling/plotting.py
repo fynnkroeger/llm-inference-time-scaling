@@ -10,7 +10,7 @@ DEBUG = False
 if DEBUG:
     experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test")
 else:
-    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments")
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments/multi_2")
 
 def exponential_smoothing(data, alpha):
     smoothed = []
@@ -234,13 +234,13 @@ if __name__ == "__main__":
         print("Usage: python script.py <experiment_name>")
     else:
         experiment_name = sys.argv[1]
-        alpha = 0.1
+        alphas = [0.05, 0.1, 1]
         plot_problems_solved(experiment_name)
-        plot(experiment_name, "other", alpha)
-        plot(experiment_name, "gen_time", alpha)
-        plot(experiment_name, "pure_gen_time", alpha)
-        plot_proportional(experiment_name, "gen_time", alpha)
-        plot_proportional(experiment_name, "pure_gen_time", alpha)
-        
         prefix_lengths, completion_lengths = process_jsonl(experiment_name)
-        save_prefix_lengths_plots(prefix_lengths, completion_lengths, experiment_name, alpha)
+        for alpha in alphas:
+            plot(experiment_name, "other", alpha)
+            plot(experiment_name, "gen_time", alpha)
+            plot(experiment_name, "pure_gen_time", alpha)
+            plot_proportional(experiment_name, "gen_time", alpha)
+            plot_proportional(experiment_name, "pure_gen_time", alpha)
+            save_prefix_lengths_plots(prefix_lengths, completion_lengths, experiment_name, alpha)

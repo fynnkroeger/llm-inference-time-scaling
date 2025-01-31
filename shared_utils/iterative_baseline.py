@@ -43,7 +43,8 @@ def run_iterative_baseline(config, llm, solved_task_ids_per_step):
         task_ids, prompt_token_ids = get_task_ids_and_prompt_token_ids_for_non_solved_problems(solved_task_ids, problems)
         
         t_3 = time.time()
-        raw_outputs = llm.generate(prompt_token_ids = prompt_token_ids, sampling_params = sampling_params)
+        if prompt_token_ids:
+            raw_outputs = llm.generate(prompt_token_ids = prompt_token_ids, sampling_params = sampling_params)
         pure_gen_time.append(time.time() - t_3)
         
         new_samples = []
