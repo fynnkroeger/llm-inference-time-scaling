@@ -63,7 +63,7 @@ def run_experiment(sampling_params, llm_params, force_generation=False,
     out_file = output_path / name
     num_gpus_used = len(environ["CUDA_VISIBLE_DEVICES"].split(","))
     raw_time = generation_function(out_file, sampling_params, llm_params)
-
+    print(f"{raw_time:.02f} s on {num_gpus_used} GPUs = {raw_time * num_gpus_used:.02f} s")
     # write only when completed
     experiments[name] = dict(
         sampling_params=sampling_params,

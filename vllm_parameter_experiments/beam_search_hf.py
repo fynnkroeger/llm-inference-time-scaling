@@ -1,15 +1,15 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from human_eval.data import write_jsonl, read_problems
 from pathlib import Path
-from time import time
+from time import time, sleep
 from os import environ
 import json
 import torch
-from time import sleep
+from collections import defaultdict
+
 from vllm_parameter_experiments.run_eval import evaluate_and_save_results, calc_pass_at_k_from_results
 from vllm_parameter_experiments.inference import run_experiment, plots_path
 import matplotlib.pyplot as plt
-from collections import defaultdict
 
 experiment_path = Path("/raid/shared/llm-inference-scaling/vllm_parameter_experiments")
 output_path = experiment_path / "outputs"
@@ -19,39 +19,76 @@ plots_path = experiment_path / "plots"
 plots_path.mkdir(exist_ok=True, parents=True)
 
 
-def run_hf(out_file, sampling_params, llm_params):
+def run_hf(out_file, sampling_params, llm_params, batch_size=16):
+    """
+    Run HF generation in batches.
+
+    Parameters:
+      out_file (str or Path): File to write the generated completions.
+      sampling_params (dict): Parameters to pass to `model.generate`.
+      llm_params (dict): Parameters for model loading (e.g. "model_name").
+      batch_size (int): Number of prompts to process per generation batch.
+    """
     problems = read_problems()
     prompts = [problem["prompt"] for problem in problems.values()]
     task_ids = list(problems.keys())
 
     tokenizer = AutoTokenizer.from_pretrained(llm_params["model_name"], padding_side="left")
+    # Make sure the pad token is defined
     tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(llm_params["model_name"],
-                                                 torch_dtype=torch.bfloat16,
-                                                 attn_implementation="sdpa", device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(
+        llm_params["model_name"],
+        torch_dtype=torch.bfloat16,
+        attn_implementation="sdpa",
+        device_map="auto"
+    )
     samples = []
     t0 = time()
 
-    tokenized = tokenizer(prompts, return_tensors="pt", padding=True)
-    # Generate text using beam search
-    with torch.no_grad():
-        beam_output = model.generate(
-            tokenized.input_ids.to("cuda"),
-            attention_mask=tokenized.attention_mask.to("cuda"),
-            pad_token_id=tokenizer.eos_token_id,
-            **sampling_params,
-        )
-    outputs = tokenizer.batch_decode(beam_output, skip_special_tokens=True)
+    # We will store the outputs from each batch here.
+    total_outputs = []
+
+    # Process prompts in batches
+    for i in range(0, len(prompts), batch_size):
+        batch_prompts = prompts[i: i + batch_size]
+        # Tokenize the batch of prompts
+        tokenized = tokenizer(batch_prompts, return_tensors="pt", padding=True)
+        input_ids = tokenized.input_ids.to("cuda")
+        attention_mask = tokenized.attention_mask.to("cuda")
+
+        with torch.no_grad():
+            batch_output = model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                pad_token_id=tokenizer.eos_token_id,
+                **sampling_params,
+                top_k=tokenizer.vocab_size  # disable top_k as is not enabled in vllm
+            )
+        # Decode the outputs of the batch
+        outputs = tokenizer.batch_decode(batch_output, skip_special_tokens=True)
+        total_outputs.extend(outputs)
+
     generation_time = time() - t0
-    iterators = [iter(outputs)] * (len(outputs) // len(task_ids))
-    for tid, output in zip(task_ids, zip(*iterators, strict=True)):
-        for out in output:
+
+    # Each prompt can generate multiple completions, e.g. when using beam search or repeated sampling.
+    # We assume that sampling_params includes "num_return_sequences" if multiple completions are desired.
+    num_return_sequences = sampling_params.get("num_return_sequences", 1)
+
+    # Group the outputs with their corresponding task_ids.
+    # (Assumes that the outputs are in the same order as the prompts.)
+    for tid, idx in zip(task_ids, range(0, len(total_outputs), num_return_sequences)):
+        completions = total_outputs[idx: idx + num_return_sequences]
+        for out in completions:
             samples.append(dict(task_id=tid, completion=out))
 
     if samples:
         write_jsonl(out_file, samples)
     return generation_time
 
+
+# =============================================================================
+# The rest of your experiment code remains largely the same.
+# For example:
 
 output_files = {}
 configs = []
@@ -84,49 +121,51 @@ for width in [6, 4, 2]:  # 16 does not work
                                         diversity_penalty=diversity_penalty, do_sample=False,
                                         early_stopping=early_stopping))
 
-# todo preven parameter offloading
-# "Some parameters are on the meta device because they were offloaded to the cpu."
-
+# Additional configurations
 for n in [1, 2, 4, 6]:
     configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
 
 devices = "4,5,6,7".split(",")
 
-# todo more models, try except cuda out of memory
 models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
 for model in models:
+    # vllm runs
     for n in [1, 2, 4, 8, 16, 32, 64]:
         out_file = run_experiment(sampling_params=dict(temperature=0.7, n=n, max_tokens=128),
                                   llm_params=dict(model=model, gpu_memory_utilization=0.75))
-        output_files[out_file] = dict(temperature=temperature, n=n, model_name=model)
+        output_files[out_file] = dict(temperature=0.7, n=n, model_name=model)
 
+    # HF runs (now using the batch-enabled run_hf)
     for sampling_params in configs:
         n = 1
         while n <= len(devices):
             environ["CUDA_VISIBLE_DEVICES"] = ",".join(devices[:n])
-            print(environ["CUDA_VISIBLE_DEVICES"])
+            print("Using GPUs:", environ["CUDA_VISIBLE_DEVICES"])
             try:
-                out_file = run_experiment(sampling_params, llm_params=dict(model_name=model),
-                                          force_generation=False, generation_function=run_hf)
+                # Pass the generation_function=run_hf which now supports batching.
+                out_file = run_experiment(
+                    sampling_params,
+                    llm_params=dict(model_name=model),
+                    force_generation=True,
+                    generation_function=run_hf
+                )
                 break
             except RuntimeError:
                 n *= 2
         output_files[out_file] = dict(**sampling_params, model_name=model)
-
         print()
+
+# (Rest of the code remains unchanged, including evaluation and plotting.)
 for k, v in output_files.items():
     print(k, v)
 result_files = []
 for out_file in output_files:
-    # for line in open(Path(output_path, out_file)):
-    #     print(json.loads(line)["completion"])
     result_files.append(evaluate_and_save_results(out_file))
 sleep(1)
 with open(experiments_file, "r") as f:
     experiments = json.load(f)
 
 for model in models:
-    # Data collection for scatter plot
     times = []  # To store time_taken
     pass_ks = []  # To store pass@k values
     ks = []
@@ -159,8 +198,6 @@ for model in models:
             ks.append(k)
             times.append(time_taken)
             pass_ks.append(pass_k_value)
-            # print(f"pass@k {pass_k_value: .2f} ;", f"{round(time_taken)} H100-sec", config)
-
             if best_scores[k] <= pass_k_value:
                 best_scores[k] = pass_k_value
                 best_configs[k].append(config)
@@ -180,7 +217,6 @@ for model in models:
         print()
 
     model_name = model.split("/")[-1]
-    # Scatter plot
     plt.figure()
     plt.scatter(times, pass_ks, marker="+", label="HF beam search")
     plt.xlabel("Time Taken (H100-sec)")
@@ -190,7 +226,7 @@ for model in models:
     plt.plot(times_rep, pass_ks_rep, label="HF repeated sampling")
     plt.legend()
     plt.xscale("log")
-    plt.savefig(f"out_{model_name}.png")  # print time and pass at k so we can look at the plot and compare performance
+    plt.savefig(f"out_{model_name}.png")
 
     plt.figure()
     plt.plot(vllm_ks, vllm_pass, label="vLLM repeated sampling")
