@@ -19,7 +19,7 @@ plots_path = experiment_path / "plots"
 plots_path.mkdir(exist_ok=True, parents=True)
 
 
-def run_hf(out_file, sampling_params, llm_params, batch_size=16):
+def run_hf(out_file, sampling_params, llm_params, batch_size=8):
     """
     Run HF generation in batches.
 
@@ -125,9 +125,9 @@ for width in [6, 4, 2]:  # 16 does not work
 for n in [1, 2, 4, 8, 16]:
     configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
 
-devices = "4,5,6,7".split(",")
+environ["CUDA_VISIBLE_DEVICES"] = "4"
 
-models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B"]
+models = ["meta-llama/Llama-3.2-1B", "meta-llama/Llama-3.2-3B", "meta-llama/Llama-3.1-8B"]
 for model in models:
     # vllm runs
     for n in [1, 2, 4, 8, 16, 32, 64]:
@@ -135,23 +135,19 @@ for model in models:
                                   llm_params=dict(model=model, gpu_memory_utilization=0.75))
         output_files[out_file] = dict(temperature=0.7, n=n, model_name=model)
 
-    # HF runs (now using the batch-enabled run_hf)
+    # hf runs
     for sampling_params in configs:
-        n = 1
-        while n <= len(devices):
-            environ["CUDA_VISIBLE_DEVICES"] = ",".join(devices[:n])
-            # print("Using GPUs:", environ["CUDA_VISIBLE_DEVICES"])
-            try:
-                # Pass the generation_function=run_hf which now supports batching.
-                out_file = run_experiment(
-                    sampling_params,
-                    llm_params=dict(model_name=model),
-                    force_generation=False,
-                    generation_function=run_hf
-                )
-                break
-            except RuntimeError:
-                n *= 2
+        if "8B" in model and sampling_params.get("diversity_penalty"):
+            continue  # only do standard beam search and
+        if "8B" in model and sampling_params.get("num_beams") and sampling_params.get("do_sample"):
+            continue
+
+        out_file = run_experiment(
+            sampling_params,
+            llm_params=dict(model_name=model),
+            force_generation=False,
+            generation_function=run_hf
+        )
         output_files[out_file] = dict(**sampling_params, model_name=model)
         print(out_file, type(out_file), "\n")
 
@@ -226,7 +222,8 @@ for model in models:
     plt.plot(vllm_times, vllm_pass, label="vLLM repeated sampling")
     plt.legend()
     plt.xscale("log")
-    plt.savefig(f"out_{model_name}.png")
+    # plt.tight_layout()
+    plt.savefig(f"out_{model_name}.png", dpi=300)
 
     plt.figure()
     plt.plot(ks_rep, pass_ks_rep, label="HF repeated sampling")
@@ -237,4 +234,5 @@ for model in models:
     plt.ylabel("pass@k")
     plt.legend()
     plt.xscale("log", base=2)
-    plt.savefig(f"out2_{model_name}.png")
+    # plt.tight_layout()
+    plt.savefig(f"out2_{model_name}.png", dpi=300)
