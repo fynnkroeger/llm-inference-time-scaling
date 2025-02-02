@@ -6,9 +6,17 @@ from tqdm import tqdm
 from collections import defaultdict
 from itertools import combinations
 import matplotlib.pyplot as plt
-from statistics import mean, variance
+from statistics import mean, stdev, variance
+import random
 
-def validate_model(model, val_loader: DataLoader):
+def calc_stats(data: list[float], metric_name: str) -> dict[str, float]:
+    return {
+        f"{metric_name}-mean": mean(data),
+        f"{metric_name}-variance": variance(data),
+        f"{metric_name}-stdev": stdev(data)
+    }
+
+def validate_model(model, val_loader: DataLoader, baseline_static_value_predictor: float):
     model.eval()
     token_predictions = []
     comparison_scores = []
@@ -38,6 +46,7 @@ def validate_model(model, val_loader: DataLoader):
                         "predicted_value": pred_value,
                         "true_value": true_value,
                         "error": abs(pred_value - true_value),
+                        "baseline_static_predictor_error": abs(pred_value - baseline_static_value_predictor),
                         "expected_value": expected_value
                     })
                 
@@ -61,21 +70,20 @@ def validate_model(model, val_loader: DataLoader):
                             
                         comparison_scores.append({
                             "score": score,
+                            "random_baseline_score": random.randint(0, 1),
                             "value_difference": abs(true_value_i - true_value_j),
                             "prediction_difference": abs(pred_value_i - pred_value_j)
                         })
-    
-    # Calculate metrics
-    accuracy = mean([s["score"] for s in comparison_scores]) if comparison_scores else 0
-    mean_error = mean([p["error"] for p in token_predictions])
     
     # Create summary
     results = {
         "token_predictions": token_predictions,
         "comparison_scores": comparison_scores,
-        "metrics": {
-            "accuracy": accuracy,
-            "mean_error": mean_error,
+        "metrics": 
+            calc_stats([s["score"] for s in comparison_scores], "accuracy") |
+            calc_stats([p["error"] for p in token_predictions], "error") |
+            calc_stats([s["random_baseline_score"] for s in comparison_scores], "random_baseline_accuary") | {
+             "baseline_static_value_predictor": baseline_static_value_predictor,
             "total_comparisons": len(comparison_scores),
             "total_predictions": len(token_predictions)
         }
