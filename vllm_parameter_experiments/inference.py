@@ -73,7 +73,7 @@ def run_experiment(sampling_params, llm_params, force_generation=False,
     )
     with open(experiments_file, "w") as f:
         json.dump(experiments, f, indent=4)
-    return out_file
+    return out_file.name
 
 
 if __name__ == "__main__":

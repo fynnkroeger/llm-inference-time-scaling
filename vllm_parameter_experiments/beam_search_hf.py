@@ -122,7 +122,7 @@ for width in [6, 4, 2]:  # 16 does not work
                                         early_stopping=early_stopping))
 
 # Additional configurations
-for n in [1, 2, 4, 6]:
+for n in [1, 2, 4, 8, 16]:
     configs.append(dict(max_new_tokens=128, do_sample=True, temperature=0.7, num_return_sequences=n))
 
 devices = "4,5,6,7".split(",")
@@ -140,20 +140,20 @@ for model in models:
         n = 1
         while n <= len(devices):
             environ["CUDA_VISIBLE_DEVICES"] = ",".join(devices[:n])
-            print("Using GPUs:", environ["CUDA_VISIBLE_DEVICES"])
+            # print("Using GPUs:", environ["CUDA_VISIBLE_DEVICES"])
             try:
                 # Pass the generation_function=run_hf which now supports batching.
                 out_file = run_experiment(
                     sampling_params,
                     llm_params=dict(model_name=model),
-                    force_generation=True,
+                    force_generation=False,
                     generation_function=run_hf
                 )
                 break
             except RuntimeError:
                 n *= 2
         output_files[out_file] = dict(**sampling_params, model_name=model)
-        print()
+        print(out_file, type(out_file), "\n")
 
 # (Rest of the code remains unchanged, including evaluation and plotting.)
 for k, v in output_files.items():
@@ -185,7 +185,7 @@ for model in models:
             continue
         if "n" in config:
             pass_at_k = calc_pass_at_k_from_results(result_file, [config["n"]])
-            time_taken = experiments[str(out_file)]["generation_time"]
+            time_taken = experiments[out_file]["generation_time"]
             pass_k_value = list(pass_at_k.values())[0]
             vllm_ks.append(config["n"])
             vllm_times.append(time_taken)
@@ -193,7 +193,7 @@ for model in models:
         elif "num_beams" in config:
             k = config["num_beams"]
             pass_at_k = calc_pass_at_k_from_results(result_file, [k])
-            time_taken = experiments[str(out_file)]["generation_time"]
+            time_taken = experiments[out_file]["generation_time"]
             pass_k_value = list(pass_at_k.values())[0]
             ks.append(k)
             times.append(time_taken)
@@ -203,7 +203,7 @@ for model in models:
                 best_configs[k].append(config)
         else:
             pass_at_k = calc_pass_at_k_from_results(result_file, [config["num_return_sequences"]])
-            time_taken = experiments[str(out_file)]["generation_time"]
+            time_taken = experiments[out_file]["generation_time"]
             pass_k_value = list(pass_at_k.values())[0]
             ks_rep.append(config["num_return_sequences"])
             times_rep.append(time_taken)
@@ -219,19 +219,22 @@ for model in models:
     model_name = model.split("/")[-1]
     plt.figure()
     plt.scatter(times, pass_ks, marker="+", label="HF beam search")
-    plt.xlabel("Time Taken (H100-sec)")
+    plt.xlabel("time (H100 seconds)")
     plt.ylabel("pass@k")
-    plt.title("Scatter Plot of pass@k vs Time Taken")
-    plt.plot(vllm_times, vllm_pass, label="vLLM repeated sampling")
+    plt.title(f"{model_name}")
     plt.plot(times_rep, pass_ks_rep, label="HF repeated sampling")
+    plt.plot(vllm_times, vllm_pass, label="vLLM repeated sampling")
     plt.legend()
     plt.xscale("log")
     plt.savefig(f"out_{model_name}.png")
 
     plt.figure()
-    plt.plot(vllm_ks, vllm_pass, label="vLLM repeated sampling")
     plt.plot(ks_rep, pass_ks_rep, label="HF repeated sampling")
     plt.scatter(ks, pass_ks, marker="+", label="HF beam search")
+    plt.plot(vllm_ks, vllm_pass, label="vLLM repeated sampling")
+    plt.title(f"{model_name}")
+    plt.xlabel("k")
+    plt.ylabel("pass@k")
     plt.legend()
-    plt.xscale("log")
+    plt.xscale("log", base=2)
     plt.savefig(f"out2_{model_name}.png")
