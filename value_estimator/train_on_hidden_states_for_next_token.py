@@ -32,6 +32,8 @@ def sample_equally_between_solved_and_unsolved(tree: BaseTokenIdsPrefixTree, n_d
     if n_data_points is None:
         n_data_points = len(X_good)
     
+    assert n_data_points <= len(X_good), f"Tried to sample {n_data_points} from X_good (max {len(X_good)})"
+    
     X_good, y_good, metadata_good = sample_n_from(n_data_points, X_good, y_good, metadata_good)    
     X_all_subset, y_all_subset, metadata_all_subset = sample_n_from(n_data_points, X_all, y_all, metadata_all)
     return X_good + X_all_subset, y_good + y_all_subset, metadata_good + metadata_all_subset

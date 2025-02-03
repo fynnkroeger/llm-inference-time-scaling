@@ -2,6 +2,7 @@ from collections import defaultdict, Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import ast
 from multiprocessing.managers import SyncManager
+import re
 import tqdm
 
 from human_eval.data import HUMAN_EVAL, read_problems
@@ -12,6 +13,7 @@ from typing import Optional, Dict
 import multiprocessing
 import operator
 from shared_utils.code_evaluation.radix_tree import RadixTree
+import traceback
 
 # Supported operators
 OPS = {
@@ -136,7 +138,19 @@ def check_correctness(problem: Dict, completion: str, timeout: float, completion
                     function_outputs.append("timed out")
                     test_results.append(False)
                 except BaseException as e:
-                    function_outputs.append(f"failed: {e}")
+                    error_type = type(e)
+                    error_message = str(e)
+                    if error_type == AssertionError:
+                        function_outputs.append(f"failed: {error_type} - {error_message}")
+                    else:
+                        detailed_traceback = traceback.format_exc()
+                        if error_type == RecursionError:
+                            line_that_contains_error_line = -3 
+                        else:
+                            line_that_contains_error_line = -2
+                        failing_line = detailed_traceback.splitlines()[line_that_contains_error_line]
+                        
+                        function_outputs.append(f"failed: {error_type} - {error_message} - {failing_line}")
                     test_results.append(False)
             else:
                 assert not any(test_results), "We assume test_results is initialized with False"
@@ -153,7 +167,20 @@ def check_correctness(problem: Dict, completion: str, timeout: float, completion
                     except TimeoutException:
                         function_outputs[i] = "TimeoutException"
                     except BaseException as e:
-                        function_outputs[i] = str(e)
+                        error_type = type(e)
+                        error_message = str(e)
+                        match = re.search(r'line (\d+)', error_message)
+                        line_info = ""
+                        if match:
+                            line_number = match.group(1)
+                            line_info = f" - line {line_number}"
+                        if error_type == AssertionError:
+                            function_outputs[i] = f"failed: {error_type} - {error_message}"
+                        else:
+                            # detailed_traceback = traceback.format_exc()
+                            # failing_line = detailed_traceback
+                            function_outputs[i] = f"failed: {error_type} - {error_message}{line_info}"
+                        
 
             # Needed for cleaning up.
             shutil.rmtree = rmtree

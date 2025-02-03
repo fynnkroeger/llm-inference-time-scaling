@@ -167,3 +167,9 @@ cython_debug/
 
 # Mac OS
 .DS_Store
+
+# pytorch lightning logs
+lightning_logs
+
+*.png
+*.csv

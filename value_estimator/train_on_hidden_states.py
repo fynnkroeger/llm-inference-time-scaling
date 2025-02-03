@@ -20,8 +20,11 @@ environ["CUDA_VISIBLE_DEVICES"] = "6"  # todo do this differently
 data = read_samples("outputs/samples-meta-llamaLlama-3.2-1B-t0.8.jsonl")
 
 tree = ExpectedValueSearchTreeWithDiversityPrediction.create_from_samples(data)
-X_good, y_good, metadata_good = tree.collect_value_estimator_features_and_target(discard_unsolved_problems=True)
-X_all, y_all, metadata_all = tree.collect_value_estimator_features_and_target(discard_unsolved_problems=False)
+tree_train, tree_val = tree.split(int(164 * 0.8))
+
+print(tree_train.number_of_unique_prompts(), "val:", tree_val.number_of_unique_prompts())
+#X_good, y_good, metadata_good = tree.collect_value_estimator_features_and_target(discard_unsolved_problems=True)
+#X_all, y_all, metadata_all = tree.collect_value_estimator_features_and_target(discard_unsolved_problems=False)
 
 
 def sample_n_from(n: int, *data: list) -> tuple:
@@ -40,19 +43,26 @@ def split_data(size_first_partition: int, *data: list) -> tuple[tuple, tuple]:
 validation_base_size = 2000
 results = []
 for n_samples in [500, 1000, 2000, 5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 320_000]:
-    if n_samples >= len(X_good):
-        print(f"Tried to sample {n_samples} good samples but only {len(X_good)} exist at all!")
+    try:
+        X_train, y_train, _ = sample_equally_between_solved_and_unsolved(tree_train, n_data_points=n_samples, include_next_token_value_estimates=False)
+    except:
         break
+    X_val_raw, y_val_raw, metadata_val = sample_equally_between_solved_and_unsolved(tree_val, include_next_token_value_estimates=False)
 
-    X_good_subset, y_good_subset, metadata_good_subset = sample_n_from(n_samples + validation_base_size, X_good, y_good, metadata_good)
-    X_all_subset, y_all_subset, metadata_all_subset = sample_n_from(n_samples + validation_base_size, X_all, y_all, metadata_all)
-
-    X, y = X_good_subset + X_all_subset, y_good_subset + y_all_subset
-    metadata = metadata_good_subset + metadata_all_subset
-
-    train_size: int = 2*n_samples
-    (X_train, y_train, _), (X_val_raw, y_val_raw, metadata_val) = split_data(train_size, X, y, metadata)
     print(f"Train size: {len(X_train)} Val size: {len(X_val_raw)}")
+    # if n_samples >= len(X_good):
+    #     print(f"Tried to sample {n_samples} good samples but only {len(X_good)} exist at all!")
+    #     break
+
+    # X_good_subset, y_good_subset, metadata_good_subset = sample_n_from(n_samples + validation_base_size, X_good, y_good, metadata_good)
+    # X_all_subset, y_all_subset, metadata_all_subset = sample_n_from(n_samples + validation_base_size, X_all, y_all, metadata_all)
+
+    # X, y = X_good_subset + X_all_subset, y_good_subset + y_all_subset
+    # metadata = metadata_good_subset + metadata_all_subset
+
+    # train_size: int = 2*n_samples
+    # (X_train, y_train, _), (X_val_raw, y_val_raw, metadata_val) = split_data(train_size, X, y, metadata)
+    # print(f"Train size: {len(X_train)} Val size: {len(X_val_raw)}")
     
     X_train, y_train = torch.Tensor(X_train), torch.Tensor(y_train)
     X_val, y_val = torch.Tensor(X_val_raw), torch.Tensor(y_val_raw)    
@@ -128,15 +138,14 @@ for n_samples in [500, 1000, 2000, 5_000, 10_000, 20_000, 40_000, 80_000, 160_00
                 x_2 = preds[j]
                 
                 score = None
-                scores_random_baseline = None
+                scores_random_baseline = random.randint(0, 1)
+
                 if y_targets[i] > y_targets[j]:
-                    scores_random_baseline = 1
                     if x_1 > x_2:
                         score = 1
                     else:
                         score = 0
                 else:
-                    scores_random_baseline = 0
                     if x_1 < x_2:
                         score = 1
                     else:
@@ -153,8 +162,8 @@ for n_samples in [500, 1000, 2000, 5_000, 10_000, 20_000, 40_000, 80_000, 160_00
 
     df_score = pd.DataFrame.from_records(score_data)
     df_error  = pd.DataFrame.from_records(prediction_data)
-    df_score.to_csv(f"outputs/single_value_estimator/scores_mlp-id-1B-{len(X_train)}.csv")
-    df_error.to_csv(f"outputs/single_value_estimator/error-mlp-id-1B-{len(X_train)}.csv")
+    df_score.to_csv(f"outputs/single_value_estimator/scores_mlp-ood-1B-{len(X_train)}.csv")
+    df_error.to_csv(f"outputs/single_value_estimator/error-mlp-ood-1B-{len(X_train)}.csv")
 
     print("mean prediction error:", df_error["error"].mean())
     print("mean score:", df_score["score"].mean())
