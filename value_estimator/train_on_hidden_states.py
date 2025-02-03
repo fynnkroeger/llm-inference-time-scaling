@@ -13,30 +13,55 @@ from value_estimator.train_on_hidden_states_for_next_token import sample_equally
 from mcts.value_estimation_network import MultiLayerNN
 import pandas as pd
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from random import shuffle
 
-environ["CUDA_VISIBLE_DEVICES"] = "7"  # todo do this differently
+environ["CUDA_VISIBLE_DEVICES"] = "6"  # todo do this differently
 
-data = read_samples("outputs-samples-meta-llama-Llama-3.1-8B-t0.8.jsonl")
+data = read_samples("outputs/samples-meta-llamaLlama-3.2-1B-t0.8.jsonl")
 
-original_tree = ExpectedValueSearchTreeWithDiversityPrediction.create_from_samples(data)
-tree_train, tree_val = original_tree.split(int(2/3 * 164))
+tree = ExpectedValueSearchTreeWithDiversityPrediction.create_from_samples(data)
+X_good, y_good, metadata_good = tree.collect_value_estimator_features_and_target(discard_unsolved_problems=True)
+X_all, y_all, metadata_all = tree.collect_value_estimator_features_and_target(discard_unsolved_problems=False)
 
 
+def sample_n_from(n: int, *data: list) -> tuple:
+    randomized_indicies = [i for i in range(len(data[0]))]
+    shuffle(randomized_indicies)
+    return tuple([data[j][i] for i in randomized_indicies[:min(n, len(data[j]))]] for j in range(len(data)))
+
+def split_data(size_first_partition: int, *data: list) -> tuple[tuple, tuple]:
+    randomized_indicies = [i for i in range(len(data[0]))]
+    shuffle(randomized_indicies)
+    assert size_first_partition <= len(data[0])
+    return tuple([data[j][i] for i in randomized_indicies[:size_first_partition]] for j in range(len(data))), tuple([data[j][i] for i in randomized_indicies[size_first_partition:]] for j in range(len(data)))
+    
+
+
+validation_base_size = 2000
 results = []
-for n_samples in [10_000, 20_000, 40_000, 80_000, 160_000, 320_000]:
-    X_train, y_train, _ = sample_equally_between_solved_and_unsolved(tree_train, n_data_points=n_samples, include_next_token_value_estimates=False)
-    X_val_raw, y_val_raw, metadata_val = sample_equally_between_solved_and_unsolved(tree_val, include_next_token_value_estimates=False)
+for n_samples in [500, 1000, 2000, 5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 320_000]:
+    if n_samples >= len(X_good):
+        print(f"Tried to sample {n_samples} good samples but only {len(X_good)} exist at all!")
+        break
 
+    X_good_subset, y_good_subset, metadata_good_subset = sample_n_from(n_samples + validation_base_size, X_good, y_good, metadata_good)
+    X_all_subset, y_all_subset, metadata_all_subset = sample_n_from(n_samples + validation_base_size, X_all, y_all, metadata_all)
+
+    X, y = X_good_subset + X_all_subset, y_good_subset + y_all_subset
+    metadata = metadata_good_subset + metadata_all_subset
+
+    train_size: int = 2*n_samples
+    (X_train, y_train, _), (X_val_raw, y_val_raw, metadata_val) = split_data(train_size, X, y, metadata)
     print(f"Train size: {len(X_train)} Val size: {len(X_val_raw)}")
     
     X_train, y_train = torch.Tensor(X_train), torch.Tensor(y_train)
-    X_val, y_val = torch.Tensor(X_val_raw), torch.Tensor(y_val_raw)
+    X_val, y_val = torch.Tensor(X_val_raw), torch.Tensor(y_val_raw)    
 
     # Split into training and validation datasets
     train_dataset = TensorDataset(X_train, y_train)
     val_dataset = TensorDataset(X_val, y_val)
 
-    input_size = 4096
+    input_size = 2048#4096
     # DataLoaders for batching
     batch_size = 512
     num_workers = 4
@@ -44,7 +69,7 @@ for n_samples in [10_000, 20_000, 40_000, 80_000, 160_000, 320_000]:
     val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers)
 
     # Initialize the model
-    model = MultiLayerNN(input_size, [256, 128, 64, 32])
+    model = MultiLayerNN(input_size, [32])
 
     early_stop = EarlyStopping(monitor="val_loss", patience=3, mode="min")
     checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor="val_loss", mode="min")
@@ -128,8 +153,8 @@ for n_samples in [10_000, 20_000, 40_000, 80_000, 160_000, 320_000]:
 
     df_score = pd.DataFrame.from_records(score_data)
     df_error  = pd.DataFrame.from_records(prediction_data)
-    df_score.to_csv(f"outputs/single_value_estimator/scores_df-mlp-big-{len(X_train)}.csv")
-    df_error.to_csv(f"outputs/single_value_estimator/error-df-mlp-big-{len(X_train)}.csv")
+    df_score.to_csv(f"outputs/single_value_estimator/scores_mlp-id-1B-{len(X_train)}.csv")
+    df_error.to_csv(f"outputs/single_value_estimator/error-mlp-id-1B-{len(X_train)}.csv")
 
     print("mean prediction error:", df_error["error"].mean())
     print("mean score:", df_score["score"].mean())
