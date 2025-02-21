@@ -15,16 +15,16 @@ import coolname
 import json
 from mcts.token_ids_prefix_tree import PrefixTreeCumulativeProbabilities
 
-# environ["CUDA_VISIBLE_DEVICES"] = "6"  # todo do this differently
-environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"  # todo do this differently
+environ["CUDA_VISIBLE_DEVICES"] = "5"  # todo do this differently
+# environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"  # todo do this differently
 environ["TOKENIZERS_PARALLELISM"] = "true"
 
 DEBUG = False
 
 if DEBUG:
-    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test/multi_2")
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments_test/multi_0")
 else:
-    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments/multi_2")
+    experiment_path = Path("/raid/shared/llm-inference-scaling/prefix_sampling_experiments/multi_0")
 
 def save_to_tree(judged_samples, tree):
     for judged_output in judged_samples:
@@ -196,22 +196,23 @@ def run_prefix_experiment(config, llm):
     
 if __name__ == "__main__":
     
-    # m = "meta-llama/Llama-3.1-8B"
-    m = "meta-llama/Llama-3.1-70B"
-    # llm = LLM(model=m, tensor_parallel_size=1)
-    llm = LLM(model=m, tensor_parallel_size=4)
-        
+    m = "meta-llama/Llama-3.1-8B"
+    # m = "meta-llama/Llama-3.1-70B"
+    llm = LLM(model=m, tensor_parallel_size=1)
+    # llm = LLM(model=m, tensor_parallel_size=4)
+    temps = [1, 3, 5, 7, 9, 11, 12]
+    
     for t in range(2, 12, 2):
-        t /= 10
         config = dict(
             generation_step_size = 1,
-            temperature = t,
+            temperature = t / 10,
             top_p = 0.95,
             max_tokens = 512,
             n = 512,
             model = m
         )
         exp_name = generate_unique_name(experiment_path)
+        exp_name = f"{t:02d}-{exp_name}"
         
         start_round_time = time.time()
         prefix_samples, prefix_solved_task_ids, prefix_time_per_gen, prefix_other, prefix_pure_gen_time, prefix_nums, prefix_internal_time, solved_task_ids_per_step = run_prefix_experiment(config, llm)
