@@ -135,7 +135,8 @@ class BaseTokenIdsPrefixTree(ABC):
     def calculate_metrics(self) -> dict:
         return {
             "common_prefix_ratio": self.metrics["common_prefix_ratio_sum"] / self.metrics["total_sequences"],
-            "totaL_duplicates": self.metrics["total_duplicates"],
+            "total_duplicates": self.metrics["total_duplicates"],
+            "total_sequences": self.metrics["total_sequences"],
             "p_is_duplicate": self.metrics["total_duplicates"] / self.metrics["total_sequences"]
         }
 
@@ -214,7 +215,10 @@ class BaseTokenIdsPrefixTree(ABC):
             else:
                 node["false_solutions_counter"] += 1
 
-        self.metrics["duplicate_prefix_ratio"] 
+        self.metrics["common_prefix_ratio_sum"] += number_of_duplicate_tokens / len(token_ids)
+        self.metrics["total_duplicates"] += int(is_duplicate)
+        self.metrics["total_sequences"] += 1
+
 
     """
     Call this method to pass a signal to the tree that we finished adding new sequences for the current generation iteration.
