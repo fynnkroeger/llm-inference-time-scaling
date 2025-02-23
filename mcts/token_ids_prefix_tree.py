@@ -126,6 +126,18 @@ class BaseTokenIdsPrefixTree(ABC):
     def __init__(self) -> None:
         self.prompt_root: dict[tuple[int,...], TokenIdNode] = {}
         self.iteration = 0
+        self.metrics = {
+            "common_prefix_ratio_sum": 0.0,
+            "total_duplicates": 0,
+            "total_sequences": 0,
+        }
+
+    def calculate_metrics(self) -> dict:
+        return {
+            "common_prefix_ratio": self.metrics["common_prefix_ratio_sum"] / self.metrics["total_sequences"],
+            "totaL_duplicates": self.metrics["total_duplicates"],
+            "p_is_duplicate": self.metrics["total_duplicates"] / self.metrics["total_sequences"]
+        }
 
     def _create_empty_node(self, token_id: Optional[int], node_log_prob: float, prompt_token_ids_hash: int, hidden_states: Optional[torch.Tensor], is_correct: Optional[bool], height: int, parent: Optional[TokenIdNode]) -> TokenIdNode:
         node =  TokenIdNode({
@@ -173,12 +185,18 @@ class BaseTokenIdsPrefixTree(ABC):
         if prompt_token_ids_as_tuple not in self.prompt_root:
             self.prompt_root[prompt_token_ids_as_tuple] = self._create_empty_node(None, 0.0,hash(prompt_token_ids_as_tuple), None, None, 0, None)
 
+        is_duplicate = True
+        number_of_duplicate_tokens = 0
+
         node = self.prompt_root[prompt_token_ids_as_tuple]
         for i in range(len(token_ids)):
             continuation_probability = math.exp(continuation_log_probs[i])
             self._update_node_metrics(node, continuation_probability, len(token_ids) - i, hashed_function_outputs)
             if token_ids[i] not in node["children_token_ids"]:
+                is_duplicate = False
                 node["children_token_ids"][token_ids[i]] = self._create_empty_node(token_ids[i], log_probs[i],hash(prompt_token_ids_as_tuple),  None, None, i + 1, node)
+            else:
+                number_of_duplicate_tokens += 1
             node["hidden_states"] = hidden_states[i]
             if is_correct is not None:
                 if is_correct:
@@ -195,7 +213,8 @@ class BaseTokenIdsPrefixTree(ABC):
                 node["correct_solutions_counter"] += 1
             else:
                 node["false_solutions_counter"] += 1
-    
+
+        self.metrics["duplicate_prefix_ratio"] 
 
     """
     Call this method to pass a signal to the tree that we finished adding new sequences for the current generation iteration.

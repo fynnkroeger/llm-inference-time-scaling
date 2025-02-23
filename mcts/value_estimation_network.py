@@ -183,6 +183,68 @@ class NextTokenValueEstimationNN(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-4)
 
+class NextTokenValueAdapterNN(pl.LightningModule):
+    def __init__(self, model_id: str, initialize_weights_with_lm_head: bool=False, device: str="cuda:0"):
+        super().__init__()
+        from transformers import AutoModel
+        model = AutoModel.from_pretrained(model_id)
+        
+        if "llama" not in model_id:
+            raise Exception("vocab, hidden_size and lm head weight extraction only possible for llama models")
+        
+
+        self.lm_head_weight: torch.Tensor = model.embed_tokens.weight.clone().detach().to(device)
+        self.lm_head_weight.requires_grad = False
+        vocab_size, hidden_size = model.embed_tokens.weight.shape
+
+        print(f"Using vocab_size: {vocab_size}, hidden_siz: {hidden_size} from {model_id}")
+        linear_layer = nn.Linear(hidden_size, vocab_size)
+        if initialize_weights_with_lm_head:
+            with torch.no_grad():
+                linear_layer.weight.copy_(self.lm_head_weight)
+                
+        self.model = nn.Sequential(
+            linear_layer
+        )
+            
+    def forward(self, x: torch.Tensor):
+        return self.model(x)
+    
+    def calculate_loss(self, batch, predictions):
+        hidden_states, token_ids, token_values, expected_values, mask = batch
+        # 1. Value Prediction Loss (using mask to handle variable lengths)
+        batch_size = hidden_states.shape[0]
+        batch_indices = torch.arange(batch_size, device=hidden_states.device).unsqueeze(1)
+        batch_indices = batch_indices.expand(-1, token_ids.size(1))
+        
+        predicted_values = predictions[batch_indices, token_ids]  # [batch_size, max_tokens]
+        value_loss = F.l1_loss(predicted_values * mask, token_values * mask, reduction='sum')
+        value_loss = value_loss / mask.sum()  # Normalize by actual number of values
+        return value_loss
+    
+    def training_step(self, batch, batch_idx):
+        hidden_states, token_ids, token_values, expected_values, mask = batch
+        
+        # Get predictions for all next tokens
+        predictions = self(hidden_states)  # [batch_size, vocab_size]
+        loss = self.calculate_loss(batch, predictions)
+        self.log("train_loss", loss, prog_bar=True)
+
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        hidden_states, token_ids, token_values, expected_values, mask = batch
+        
+        # Get predictions for all next tokens
+        predictions = self(hidden_states)  # [batch_size, vocab_size]
+        loss = self.calculate_loss(batch, predictions)
+        self.log("val_loss", loss, prog_bar=True)
+        
+        return loss
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-4)
+    
 def collate_fn(batch: list[tuple[torch.Tensor, list[int], list[float], float]]):
     """
     Handles variable-length token lists through padding.
