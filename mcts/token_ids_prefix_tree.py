@@ -1,12 +1,10 @@
-from re import A
-from typing import Any, Self, TypedDict, Union, Optional, NotRequired
+from typing import Any, Self, Optional
 from abc import ABC, abstractmethod
 import math
 import warnings
 import torch
 import numpy as np
 from tqdm import tqdm
-from warnings import warn
 import random
 
 class TokenIdNode(dict):
@@ -75,6 +73,18 @@ class TokenIdNode(dict):
             #warn(f"Node has no solution counter: {self}" )
         return X,y, metadata
     
+    def _update_total_following_paths_probability(self) -> None:
+        if len(self["children_token_ids"]) == 0:
+            self["total_following_paths_probability"] = 1.0
+        else:
+            total_following_paths_probability = 0.0
+            for node in self["children_token_ids"].values():
+                total_following_paths_probability += math.exp(node["node_log_prob"]) * node["total_following_paths_probability"]
+            self["total_following_paths_probability"] = total_following_paths_probability
+
+        if self["total_following_paths_probability"] > 1.0:
+            warnings.warn(f"{self} total_following_paths_probability > 1.0. This shouldnt happen because then it was probably decoded twice: {self['total_following_paths_probability']} ")
+
     def __repr__(self) -> str:
         return f"TokenIdNode(token_id:{self["token_id"]}, log_prob:{self["node_log_prob"]}, children_token_ids:{self["children_token_ids"].keys()}, correct_solutions_counter:{self["correct_solutions_counter"]}, false_solutions_counter:{self["false_solutions_counter"]})"
 
@@ -101,7 +111,6 @@ class BaseTokenIdsPrefixTree(ABC):
         prompts = list(self.prompt_root.keys())
         random.shuffle(prompts)
 
-        print("Splitting tree with new instance from", self.__class__)
         tree_1 = self.__class__()
         tree_2 = self.__class__()
 
@@ -130,14 +139,16 @@ class BaseTokenIdsPrefixTree(ABC):
             "common_prefix_ratio_sum": 0.0,
             "total_duplicates": 0,
             "total_sequences": 0,
+            "potentially_saved_prefix_tokens": 0
         }
 
     def calculate_metrics(self) -> dict:
         return {
             "common_prefix_ratio": self.metrics["common_prefix_ratio_sum"] / self.metrics["total_sequences"],
-            "total_duplicates": self.metrics["total_duplicates"],
-            "total_sequences": self.metrics["total_sequences"],
-            "p_is_duplicate": self.metrics["total_duplicates"] / self.metrics["total_sequences"]
+            "totaL_duplicates": self.metrics["total_duplicates"],
+            "total_seqeunces": self.metrics["total_sequences"],
+            "p_is_duplicate": self.metrics["total_duplicates"] / self.metrics["total_sequences"],
+            "potentially_saved_prefix_tokens": self.metrics["potentially_saved_prefix_tokens"]
         }
 
     def _create_empty_node(self, token_id: Optional[int], node_log_prob: float, prompt_token_ids_hash: int, hidden_states: Optional[torch.Tensor], is_correct: Optional[bool], height: int, parent: Optional[TokenIdNode]) -> TokenIdNode:
@@ -150,7 +161,8 @@ class BaseTokenIdsPrefixTree(ABC):
             "correct_solutions_counter": 1 if is_correct and is_correct is not None else 0,
             "false_solutions_counter": 1 if not is_correct and is_correct is not None else 0,
             "path_depth": height,
-            "parent": parent
+            "parent": parent,
+            "total_following_paths_probability": 1.0
         })
 
         node.update(self._additional_node_attributes(token_id, node_log_prob))
@@ -163,7 +175,7 @@ class BaseTokenIdsPrefixTree(ABC):
         }
 
     @abstractmethod
-    def _update_node_metrics(self, node: TokenIdNode, continuation_probability: float, path_length: int, hashed_function_outputs:Optional[int]) -> None:
+    def _update_node_metrics(self, node: TokenIdNode, path_length: int, hashed_function_outputs:Optional[int]) -> None:
         """Update the node's metrics based on the specific search strategy."""
         pass
 
@@ -172,15 +184,8 @@ class BaseTokenIdsPrefixTree(ABC):
         """Calculate the adjustment factor for logits based on the specific search strategy."""
         pass
 
-    def add_sequence(self, prompt_token_ids: list[int], token_ids: list[int], log_probs: list[float], hidden_states: torch.Tensor, hashed_function_outputs : Optional[int]=None, is_correct: Optional[bool] = None) -> None:
+    def add_sequence(self, prompt_token_ids: list[int], token_ids: list[int], log_probs: list[float], hidden_states: Optional[torch.Tensor] = None, hashed_function_outputs : Optional[int]=None, is_correct: Optional[bool] = None) -> None:
         assert len(token_ids) == len(log_probs), "Each token_id must have one log_prob. However, the two lists have different lengths"
-        
-        # Calculate continuation probabilities from each position to the end
-        continuation_log_probs = [0.0] * (len(log_probs) + 1)
-        cumulative_log_prob = 0.0
-        for i in range(len(log_probs) - 1, -1, -1):
-            cumulative_log_prob += log_probs[i]
-            continuation_log_probs[i] = cumulative_log_prob
 
         prompt_token_ids_as_tuple = tuple(prompt_token_ids)
         if prompt_token_ids_as_tuple not in self.prompt_root:
@@ -191,34 +196,41 @@ class BaseTokenIdsPrefixTree(ABC):
 
         node = self.prompt_root[prompt_token_ids_as_tuple]
         for i in range(len(token_ids)):
-            continuation_probability = math.exp(continuation_log_probs[i])
-            self._update_node_metrics(node, continuation_probability, len(token_ids) - i, hashed_function_outputs)
+            self._update_node_metrics(node, len(token_ids) - i, hashed_function_outputs)
             if token_ids[i] not in node["children_token_ids"]:
                 is_duplicate = False
                 node["children_token_ids"][token_ids[i]] = self._create_empty_node(token_ids[i], log_probs[i],hash(prompt_token_ids_as_tuple),  None, None, i + 1, node)
             else:
                 number_of_duplicate_tokens += 1
-            node["hidden_states"] = hidden_states[i]
+                
+            if hidden_states is not None:
+                node["hidden_states"] = hidden_states[i]
             if is_correct is not None:
                 if is_correct:
                     node["correct_solutions_counter"] += 1
                 else:
                     node["false_solutions_counter"] += 1
             node = node["children_token_ids"][token_ids[i]]
-        
+            node["node_log_prob"] = log_probs[i]
+            
         # set correctness counter for last node
-        continuation_probability = math.exp(continuation_log_probs[len(token_ids)])
-        self._update_node_metrics(node,continuation_probability, len(token_ids), hashed_function_outputs)
+        self._update_node_metrics(node, len(token_ids), hashed_function_outputs)
         if is_correct is not None:
             if is_correct:
                 node["correct_solutions_counter"] += 1
             else:
                 node["false_solutions_counter"] += 1
 
-        self.metrics["common_prefix_ratio_sum"] += number_of_duplicate_tokens / len(token_ids)
-        self.metrics["total_duplicates"] += int(is_duplicate)
-        self.metrics["total_sequences"] += 1
+        # Backtrack and update total_following_paths_probability
+        for i in range(len(token_ids) -1, -1, -1):
+            node._update_total_following_paths_probability()
+            node = node["parent"]
 
+        self.metrics["common_prefix_ratio_sum"] += number_of_duplicate_tokens / len(token_ids)
+        self.metrics["potentially_saved_prefix_tokens"] += number_of_duplicate_tokens
+        if is_duplicate:
+            self.metrics["total_duplicates"] += 1
+        self.metrics["total_sequences"] += 1
 
     """
     Call this method to pass a signal to the tree that we finished adding new sequences for the current generation iteration.
@@ -263,6 +275,8 @@ class BaseTokenIdsPrefixTree(ABC):
 
         return logits
 
+    
+
 class ExpectedValueSearchTree(BaseTokenIdsPrefixTree):
     """
     Implements a search strategy that maintains an upper bound on the expected value
@@ -275,11 +289,8 @@ class ExpectedValueSearchTree(BaseTokenIdsPrefixTree):
             "total_following_paths_probability": 0.0
         }
     
-    def _update_node_metrics(self, node: TokenIdNode, continuation_probability: float, path_length: int, hashed_function_outputs: Optional[int]) -> None:
-        """Update node's expected value upper bound by adding the continuation probability."""
-        node["total_following_paths_probability"] += continuation_probability
-        if node["total_following_paths_probability"] > 1.0:
-            warnings.warn(f"{node} total_following_paths_probability > 1.0. This shouldnt happen because then it was probably decoded twice: {node['total_following_paths_probability']} ")
+    def _update_node_metrics(self, node: TokenIdNode, path_length: int, hashed_function_outputs: Optional[int]) -> None:
+        pass
 
     def _get_adjustment_factor(self, node: TokenIdNode) -> float:
         """
@@ -303,9 +314,8 @@ class ExpectedValueSearchTreeWithDiversityPrediction(BaseTokenIdsPrefixTree):
             "num_unique_function_outputs": 0
         }
     
-    def _update_node_metrics(self, node: TokenIdNode, continuation_probability: float, path_length: int, hashed_function_outputs: Optional[int]) -> None:
+    def _update_node_metrics(self, node: TokenIdNode, path_length: int, hashed_function_outputs: Optional[int]) -> None:
         """Update node's expected value upper bound by adding the continuation probability."""
-        node["total_following_paths_probability"] += continuation_probability
         if hashed_function_outputs in node["function_outputs"]:
             node["num_duplicate_function_outputs"] += 1
         else:
@@ -325,32 +335,3 @@ class ExpectedValueSearchTreeWithDiversityPrediction(BaseTokenIdsPrefixTree):
         p_is_duplicate = (alpha_prior + node["num_duplicate_function_outputs"] - 1) / (beta_prior + node["num_duplicate_function_outputs"] + node["num_unique_function_outputs"] - 2)
 
         return math.log((1.0 - node["total_following_paths_probability"]) * (1 - p_is_duplicate)) if node["total_following_paths_probability"] < 1.0 and p_is_duplicate < 1.0 else -math.inf
-    
-class BeamSearchLikeTree(BaseTokenIdsPrefixTree):
-    """
-    Implements a search strategy similar to beam search, maintaining the average
-    continuation probability for paths through each node.
-    """
-    def _additional_node_attributes(self, token_id: Optional[int], node_log_prob: float) -> dict:
-        return {
-            "avg_continuation_probability": 0.0,
-            "path_count": 0
-        }
-    
-    def _update_node_metrics(self, node: TokenIdNode, continuation_probability: float, path_length: int, hashed_function_outputs: Optional[int]) -> None:
-        """
-        Update node's average continuation probability using running average formula:
-        new_average = old_average + (new_value - old_average) / new_count
-        """
-
-        path_normalized_log_probability = math.log(continuation_probability) / path_length
-        old_average = node["avg_continuation_probability"]
-        node["path_count"] += 1
-        node["avg_continuation_probability"] = old_average + (math.exp(path_normalized_log_probability) - old_average) / node["path_count"]
-
-    def _get_adjustment_factor(self, node: TokenIdNode) -> float:
-        """
-        Get adjustment factor based on average continuation probability.
-        Penalizes paths through nodes that typically lead to low probability continuations.
-        """
-        return math.log(node["avg_continuation_probability"]) if node["avg_continuation_probability"] > 0.0 else 0.0
