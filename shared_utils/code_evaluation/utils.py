@@ -9,23 +9,25 @@ import torch
 import os
 import warnings
 from pathlib import Path
-def read_samples(file_path: str) -> list:
+def read_samples(file_path: str, load_hidden_states: bool = True) -> list:
     data = []
     base_path = file_path.replace(".jsonl", "").replace(".gz", "")
 
     hidden_states_file_path = base_path + ".pt"
-    if os.path.isfile(hidden_states_file_path):
+    if load_hidden_states and os.path.isfile(hidden_states_file_path):
         print("Loading hidden states from file")
         hidden_states: Optional[dict[str, torch.Tensor]] = torch.load(hidden_states_file_path, weights_only=True)
         print(f"Loaded {len(hidden_states)} hidden states")
-    else:
+    elif load_hidden_states:
         print("Found no hidden states file!")
+        hidden_states = None
+    else:
         hidden_states = None
 
     with open(file_path, "r") as f:
         for line in f.readlines():
             new_sample = json.loads(line)
-            if "hidden_states" in new_sample:
+            if load_hidden_states and "hidden_states" in new_sample:
                 if hidden_states is None:
                     raise Exception(f".jsonl sample file contained hidden_states ids but no hidden_states were found in: {hidden_states_file_path}!")
                 else:
