@@ -8,8 +8,12 @@ class TestTokenIdsPrefixTree(unittest.TestCase):
         tree.add_sequence([0], [1, 2],[log(0.5), log(0.5)])
         sequence_root = tree.prompt_root[tuple([0])] 
 
+        # Token id: None (empty root)
         assert sequence_root["total_following_paths_probability"] == 0.25
+        # Token id: 1
         assert sequence_root.get_first_child()["total_following_paths_probability"] == 0.5
+        # Token id: 2
+        assert sequence_root.get_first_child().get_first_child()["total_following_paths_probability"] == 1.0
 
     def test_probability_discounting_two_sequences(self):
         tree = ExpectedValueSearchTree()
@@ -19,6 +23,7 @@ class TestTokenIdsPrefixTree(unittest.TestCase):
 
         assert sequence_root["total_following_paths_probability"] == 0.5 * (0.5 + 0.25)
         assert sequence_root.get_first_child()["total_following_paths_probability"] == 0.5 + 0.25
+        assert sequence_root.get_first_child().get_first_child()["total_following_paths_probability"] == 1.0
 
 
     def test_probability_discounting_duplicate_sequence(self):
@@ -31,6 +36,7 @@ class TestTokenIdsPrefixTree(unittest.TestCase):
         # Depending on the inference methods we might add the same seqeunce twice but it should only count once (same results as in test_probability_discounting_one_sequence)
         assert sequence_root["total_following_paths_probability"] == 0.25
         assert sequence_root.get_first_child()["total_following_paths_probability"] == 0.5
+        assert sequence_root.get_first_child().get_first_child()["total_following_paths_probability"] == 1.0
 
 
 if __name__ == '__main__':
