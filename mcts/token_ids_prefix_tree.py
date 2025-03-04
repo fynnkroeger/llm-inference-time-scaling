@@ -1,7 +1,8 @@
-from typing import Any, Self, Optional
+from typing import Any, Callable, Self, Optional
 from abc import ABC, abstractmethod
 import math
 import warnings
+from sympy import viete
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -20,6 +21,8 @@ class TokenIdNode(dict):
     correct_solutions_counter: int
     false_solutions_counter: int
     parent: Optional[Self]
+    reward: float
+    expected_reward: float
 
     def __hash__(self) -> int: # type: ignore
         return hash((self["prompt_hash"], self["token_id"]))
@@ -30,11 +33,25 @@ class TokenIdNode(dict):
             "path_depth": self["path_depth"]
         }
 
+    def traverse_with_visitor(self, visitor) -> None:
+        visitor.accept(self)
+        for c in self["children_token_ids"].values():
+            c.traverse_with_visitor(visitor)
+        
     def get_leaf(self) -> Self:
         if len(self["children_token_ids"]) == 0:
             return self
         return self.get_first_child().get_leaf()
 
+    def get_leafs(self) -> list[Self]:
+        if len(self["children_token_ids"]) == 0:
+            return [self]
+        else:
+            leafs = []
+            for c in self["children_token_ids"].values():
+                leafs += c.get_leafs()
+            return leafs
+    
     def get_first_child(self) -> Self:
         if len(self["children_token_ids"]) == 0:
             raise Exception(f"Node: {self} has no children!")
@@ -72,19 +89,10 @@ class TokenIdNode(dict):
             pass
             #warn(f"Node has no solution counter: {self}" )
         return X,y, metadata
+
+    def is_leaf(self) -> bool:
+        return len(self["children_token_ids"]) == 0
     
-    def _update_total_following_paths_probability(self) -> None:
-        if len(self["children_token_ids"]) == 0:
-            self["total_following_paths_probability"] = 1.0
-        else:
-            total_following_paths_probability = 0.0
-            for node in self["children_token_ids"].values():
-                total_following_paths_probability += math.exp(node["node_log_prob"]) * node["total_following_paths_probability"]
-            self["total_following_paths_probability"] = total_following_paths_probability
-
-        if self["total_following_paths_probability"] > 1.0:
-            warnings.warn(f"{self} total_following_paths_probability > 1.0. This shouldnt happen because then it was probably decoded twice: {self['total_following_paths_probability']} ")
-
     def __repr__(self) -> str:
         return f"TokenIdNode(token_id:{self["token_id"]}, log_prob:{self["node_log_prob"]}, children_token_ids:{self["children_token_ids"].keys()}, correct_solutions_counter:{self["correct_solutions_counter"]}, false_solutions_counter:{self["false_solutions_counter"]})"
 
@@ -101,10 +109,22 @@ class BaseTokenIdsPrefixTree(ABC):
             tree.add_sequence(sample["prompt_token_ids"], output_token_ids, raw_logprobs, sample["hidden_states"],hash(tuple(sample["function_outputs"])), sample["passed"])
        
         return tree
-
+    
     def number_of_unique_prompts(self) -> int:
         return len(self.prompt_root)
     
+    def _update_total_following_paths_probability(self, node: TokenIdNode) -> None:
+        if len(node["children_token_ids"]) == 0:
+            node["total_following_paths_probability"] = 1.0
+        else:
+            total_following_paths_probability = 0.0
+            for node_x in node["children_token_ids"].values():
+                total_following_paths_probability += math.exp(node_x["node_log_prob"]) * node_x["total_following_paths_probability"]
+            node["total_following_paths_probability"] = total_following_paths_probability
+
+        if node["total_following_paths_probability"] > 1.0:
+            warnings.warn(f"{self} total_following_paths_probability > 1.0. This shouldnt happen because then it was probably decoded twice: {node['total_following_paths_probability']} ")
+
     def split(self, n_prompts_in_first_tree: int) -> tuple[Self, Self]:
         assert n_prompts_in_first_tree < self.number_of_unique_prompts()
         warnings.warn("This methode does not copy/deepclone anything and just 'moves pointers'. You should throw away any references to the old tree because they still reference the same objects!")
@@ -162,7 +182,9 @@ class BaseTokenIdsPrefixTree(ABC):
             "false_solutions_counter": 1 if not is_correct and is_correct is not None else 0,
             "path_depth": height,
             "parent": parent,
-            "total_following_paths_probability": 1.0
+            "total_following_paths_probability": 1.0,
+            "reward": 1.0 if is_correct else 0.0,
+            "expected_reward": None # Must be calculated through backpropagation 
         })
 
         node.update(self._additional_node_attributes(token_id, node_log_prob))
@@ -222,9 +244,7 @@ class BaseTokenIdsPrefixTree(ABC):
                 node["false_solutions_counter"] += 1
 
         # Backtrack and update total_following_paths_probability
-        for i in range(len(token_ids) -1, -1, -1):
-            node._update_total_following_paths_probability()
-            node = node["parent"]
+        self.calculate_and_backpropgate_total_following_path_probabilities_from_leaf(node)
 
         self.metrics["common_prefix_ratio_sum"] += number_of_duplicate_tokens / len(token_ids)
         self.metrics["potentially_saved_prefix_tokens"] += number_of_duplicate_tokens
@@ -232,6 +252,23 @@ class BaseTokenIdsPrefixTree(ABC):
             self.metrics["total_duplicates"] += 1
         self.metrics["total_sequences"] += 1
 
+    def traverse_with_visitor(self, visitor) -> None:
+        for node in self.prompt_root.values():
+            node.traverse_with_visitor(visitor)
+    
+    def recalculate_all_path_probabilities(self) -> None:
+        roots = self.prompt_root.values()
+        for r in roots:
+            for l in r.get_leafs():
+                self.calculate_and_backpropgate_total_following_path_probabilities_from_leaf(l)
+        
+    def calculate_and_backpropgate_total_following_path_probabilities_from_leaf(self, node: TokenIdNode) -> None:
+        assert node.is_leaf()
+
+        while node is not None:
+            self._update_total_following_paths_probability(node)
+            node = node["parent"]
+        
     """
     Call this method to pass a signal to the tree that we finished adding new sequences for the current generation iteration.
     Subclasses can use this method inorder to start things like training value estimation models
